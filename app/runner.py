@@ -111,9 +111,13 @@ def main():
     settings = load_settings(args.env)
     setup_logging(settings.log_dir)
 
-    users = parse_users(settings.users_file)
+    from app.feedback_store import get_wg_users
+    users = get_wg_users()
     if not users:
-        log.warning("Brak użytkowników. Sprawdź USERS_FILE.")
+        log.info("Brak użytkowników w wg_users — fallback: users.txt")
+        users = parse_users(settings.users_file)
+    if not users:
+        log.warning("Brak użytkowników. Sprawdź wg_users w feedback.db lub USERS_FILE.")
         return
 
     st = StateDB(settings.state_db)

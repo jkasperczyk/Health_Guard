@@ -115,6 +115,21 @@ def ensure_schema() -> None:
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_sms_users_phone ON sms_users(phone);")
 
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS wg_users (
+                phone         TEXT PRIMARY KEY,
+                profiles_json TEXT NOT NULL DEFAULT '["migraine"]',
+                location      TEXT NOT NULL DEFAULT '',
+                threshold     INTEGER,
+                quiet_hours   TEXT,
+                enabled       INTEGER NOT NULL DEFAULT 1,
+                updated_at    TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        c.execute("CREATE INDEX IF NOT EXISTS idx_wg_users_enabled ON wg_users(enabled);")
+
         c.commit()
     finally:
         c.close()
@@ -462,6 +477,36 @@ def sms_clear_factors(phone: str) -> None:
         c.commit()
     finally:
         c.close()
+
+
+def get_wg_users() -> list:
+    """Return all enabled users from wg_users as UserCfg instances, one per profile.
+    Returns empty list if the table is empty (caller should fall back to users.txt)."""
+    from app.config import UserCfg  # lazy to avoid circular-import risk
+    ensure_schema()
+    c = _conn()
+    try:
+        rows = c.execute(
+            "SELECT phone, profiles_json, location, threshold, quiet_hours "
+            "FROM wg_users WHERE enabled=1 ORDER BY phone"
+        ).fetchall()
+    finally:
+        c.close()
+    result = []
+    for phone, profiles_json, location, threshold, quiet_hours in rows:
+        try:
+            profiles = json.loads(profiles_json or '["migraine"]')
+        except Exception:
+            profiles = ["migraine"]
+        for profile in (profiles or ["migraine"]):
+            result.append(UserCfg(
+                phone=phone,
+                profile=str(profile),
+                location=location or "",
+                threshold=int(threshold) if threshold is not None else None,
+                quiet_hours=quiet_hours or None,
+            ))
+    return result
 
 
 def sms_migrate_from_json(json_path: str, users_txt: str = "") -> int:
