@@ -111,7 +111,7 @@ def main():
     settings = load_settings(args.env)
     setup_logging(settings.log_dir)
 
-    from app.feedback_store import get_wg_users
+    from app.feedback_store import get_wg_users, get_today_wellbeing
     users = get_wg_users()
     if not users:
         log.info("Brak użytkowników w wg_users — fallback: users.txt")
@@ -165,6 +165,16 @@ def main():
                     a = fetch_air_quality(loc.latitude, loc.longitude)
 
             feats = extract_features(w, a)
+
+            # Merge today's self-reported wellbeing (best-effort)
+            try:
+                wellbeing = get_today_wellbeing(u.phone)
+                if wellbeing:
+                    feats.update(wellbeing)
+                    log.debug(f"[wellbeing] {u.phone} stress={wellbeing.get('stress_1_10')} exercise={wellbeing.get('exercise_1_10')}")
+            except Exception:
+                pass
+
             rr = pick_risk_fn(u.profile)(feats)
 
             # trend reading (always, best-effort)

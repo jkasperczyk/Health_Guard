@@ -132,6 +132,24 @@ def migraine_risk(feats: Dict[str, Any]) -> RiskResult:
             score += 5
             reasons.append(f"Umiarkowana aktywność geomagnetyczna (Kp≈{kp:.0f})")
 
+    # Self-reported wellbeing factors
+    stress = _get(feats, "stress_1_10")
+    if stress is not None:
+        if stress >= 8:
+            score += 12
+            reasons.append(f"Wysoki stres ({stress:.0f}/10) — znany wyzwalacz migreny")
+        elif stress >= 6:
+            score += 6
+            reasons.append(f"Podwyższony stres ({stress:.0f}/10)")
+
+    exercise = _get(feats, "exercise_1_10")
+    if exercise is not None:
+        if exercise <= 2:
+            score += 8
+            reasons.append(f"Niska aktywność fizyczna ({exercise:.0f}/10)")
+        elif exercise >= 8:
+            score = max(0.0, score - 5)
+
     s = _clamp(score)
     return RiskResult("migraine", s, _label_pl(s), reasons)
 
@@ -191,6 +209,16 @@ def heart_risk(feats: Dict[str, Any]) -> RiskResult:
     if imgw is not None and imgw >= 2:
         score += 6
         reasons.append("Silniejsze ostrzeżenia IMGW w regionie")
+
+    # Self-reported wellbeing factors
+    stress = _get(feats, "stress_1_10")
+    if stress is not None:
+        if stress >= 8:
+            score += 15
+            reasons.append(f"Wysoki stres ({stress:.0f}/10) — obciążenie układu krążenia")
+        elif stress >= 6:
+            score += 8
+            reasons.append(f"Podwyższony stres ({stress:.0f}/10)")
 
     s = _clamp(score)
     return RiskResult("heart", s, _label_pl(s), reasons)
@@ -269,6 +297,12 @@ def allergy_risk(feats: Dict[str, Any]) -> RiskResult:
     if gust is not None and gust >= 50:
         score += 5
         reasons.append("Wiatr może nasilać ekspozycję na pyłki/pyły")
+
+    # Self-reported wellbeing factors
+    stress = _get(feats, "stress_1_10")
+    if stress is not None and stress >= 8:
+        score += 5
+        reasons.append(f"Stres może nasilać reakcje alergiczne ({stress:.0f}/10)")
 
     s = _clamp(score)
     return RiskResult("allergy", s, _label_pl(s), reasons)

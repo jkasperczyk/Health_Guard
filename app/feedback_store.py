@@ -130,6 +130,20 @@ def ensure_schema() -> None:
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_wg_users_enabled ON wg_users(enabled);")
 
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS wellbeing (
+                phone         TEXT NOT NULL,
+                day           TEXT NOT NULL,
+                stress_1_10   INTEGER,
+                exercise_1_10 INTEGER,
+                updated_at    TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (phone, day)
+            )
+            """
+        )
+        c.execute("CREATE INDEX IF NOT EXISTS idx_wellbeing_phone_day ON wellbeing(phone, day);")
+
         c.commit()
     finally:
         c.close()
@@ -506,6 +520,31 @@ def get_wg_users() -> list:
                 threshold=int(threshold) if threshold is not None else None,
                 quiet_hours=quiet_hours or None,
             ))
+    return result
+
+
+def get_today_wellbeing(phone: str) -> Dict[str, Any]:
+    """Return today's self-reported wellbeing for a phone number.
+    Keys present only when the user logged a value: stress_1_10, exercise_1_10.
+    Returns {} if no entry exists for today."""
+    import datetime as _dt
+    today = _dt.date.today().isoformat()
+    ensure_schema()
+    c = _conn()
+    try:
+        row = c.execute(
+            "SELECT stress_1_10, exercise_1_10 FROM wellbeing WHERE phone=? AND day=?",
+            (phone, today),
+        ).fetchone()
+    finally:
+        c.close()
+    if not row:
+        return {}
+    result: Dict[str, Any] = {}
+    if row[0] is not None:
+        result["stress_1_10"] = int(row[0])
+    if row[1] is not None:
+        result["exercise_1_10"] = int(row[1])
     return result
 
 
