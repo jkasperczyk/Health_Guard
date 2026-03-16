@@ -5,6 +5,10 @@ from typing import Any, Dict
 
 USERS_DB = os.environ.get("SMS_USERS_DB", "/opt/weatherguard/data/sms_users.json")
 
+_base_dir = os.environ.get("BASE_DIR", "/opt/weatherguard")
+_cfg_dir = os.environ.get("CONFIG_DIR", os.path.join(_base_dir, "config"))
+USERS_TXT = os.environ.get("USERS_FILE", os.path.join(_cfg_dir, "users.txt"))
+
 from app.feedback_store import (
     sms_ensure_user,
     sms_get_user,
@@ -15,9 +19,9 @@ from app.feedback_store import (
     sms_migrate_from_json,
 )
 
-# Migrate existing JSON data into SQLite on first import (idempotent).
+# Migrate existing JSON data and users.txt into SQLite on first import (idempotent).
 try:
-    sms_migrate_from_json(USERS_DB)
+    sms_migrate_from_json(USERS_DB, users_txt=USERS_TXT)
 except Exception:
     pass
 

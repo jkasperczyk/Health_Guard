@@ -464,41 +464,56 @@ def sms_clear_factors(phone: str) -> None:
         c.close()
 
 
-def sms_migrate_from_json(json_path: str) -> int:
-    """Import sms_users.json rows into the sms_users table. INSERT OR IGNORE — safe to call repeatedly.
-    Returns number of rows newly inserted."""
-    if not os.path.exists(json_path):
-        return 0
-    try:
-        with open(json_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        return 0
-    if not isinstance(data, dict):
-        return 0
+def sms_migrate_from_json(json_path: str, users_txt: str = "") -> int:
+    """Import users into the sms_users table from two sources (INSERT OR IGNORE — safe to call repeatedly):
+    1. sms_users.json (json_path) — preserves subscribed flag and factors.
+    2. users.txt (users_txt) — seeds any phone not already present with subscribed=1, empty factors.
+    Returns total number of rows newly inserted."""
     ensure_schema()
     now = _sms_utc_iso()
     c = _conn()
     count = 0
     try:
-        for phone, u in data.items():
-            if not isinstance(u, dict):
-                continue
-            c.execute(
-                """
-                INSERT OR IGNORE INTO sms_users(phone, subscribed, factors_json, created_at, updated_at, last_interaction_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    phone,
-                    1 if u.get("subscribed", True) else 0,
-                    json.dumps(u.get("factors") or {}, ensure_ascii=False),
-                    u.get("created_at") or now,
-                    u.get("updated_at") or now,
-                    u.get("last_interaction_at") or now,
-                ),
-            )
-            count += c.execute("SELECT changes()").fetchone()[0]
+        # --- source 1: sms_users.json ---
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
+            if isinstance(data, dict):
+                for phone, u in data.items():
+                    if not isinstance(u, dict):
+                        continue
+                    c.execute(
+                        """
+                        INSERT OR IGNORE INTO sms_users(phone, subscribed, factors_json, created_at, updated_at, last_interaction_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            phone,
+                            1 if u.get("subscribed", True) else 0,
+                            json.dumps(u.get("factors") or {}, ensure_ascii=False),
+                            u.get("created_at") or now,
+                            u.get("updated_at") or now,
+                            u.get("last_interaction_at") or now,
+                        ),
+                    )
+                    count += c.execute("SELECT changes()").fetchone()[0]
+
+        # --- source 2: users.txt ---
+        if users_txt and os.path.exists(users_txt):
+            from app.config import parse_users  # lazy import to avoid circularity
+            for user in parse_users(users_txt):
+                c.execute(
+                    """
+                    INSERT OR IGNORE INTO sms_users(phone, subscribed, factors_json, created_at, updated_at, last_interaction_at)
+                    VALUES (?, 1, '{}', ?, ?, ?)
+                    """,
+                    (user.phone, now, now, now),
+                )
+                count += c.execute("SELECT changes()").fetchone()[0]
+
         c.commit()
     finally:
         c.close()
