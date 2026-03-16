@@ -1,0 +1,107 @@
+from __future__ import annotations
+import argparse
+import logging
+import time
+from datetime import datetime
+
+from app.config import load_settings, parse_users, parse_quiet_hours, is_in_quiet_hours
+from app.logging_setup import setup_logging
+from app.weather import resolve_location, fetch_weather, fetch_air_quality, extract_features
+from app.risk import migraine_risk, heart_risk, combined_risk
+from app.ai import generate_message
+from app.state import StateDB
+from app.whatsapp import WhatsAppSender
+
+def pick_risk(profile: str, feats):
+    if profile == "migraine":
+        return migraine_risk(feats)
+    if profile == "heart":
+        return heart_risk(feats)
+    return combined_risk(feats)
+
+def threshold_for(profile: str, settings, user_threshold: int | None) -> int:
+    if user_threshold is not None:
+        return int(user_threshold)
+    if profile == "migraine":
+        return settings.default_threshold_migraine
+    if profile == "heart":
+        return settings.default_threshold_heart
+    return min(settings.default_threshold_migraine, settings.default_threshold_heart)
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--env", default=None, help="Path to .env (optional)")
+    ap.add_argument("--once", action="store_true", help="Run one cycle and exit")
+    ap.add_argument("--dry-run", action="store_true", help="Do not send WhatsApp messages")
+    args = ap.parse_args()
+
+    settings = load_settings(args.env)
+    setup_logging(settings.log_dir)
+    log = logging.getLogger("weatherguard")
+
+    users = parse_users(settings.users_file)
+    state = StateDB(settings.state_db)
+
+    if not users:
+        log.warning("No users in config.")
+        return
+
+    sender = None
+    if not args.dry_run:
+        if not (settings.twilio_account_sid and settings.twilio_auth_token and settings.twilio_whatsapp_from):
+            raise RuntimeError("Twilio credentials missing. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM in .env")
+        sender = WhatsAppSender(settings.twilio_account_sid, settings.twilio_auth_token, settings.twilio_whatsapp_from)
+
+    now_ts = int(time.time())
+    for u in users:
+        try:
+            loc = resolve_location(u.location)
+            w = fetch_weather(loc, settings.forecast_hours)
+            a = fetch_air_quality(loc, settings.forecast_hours)
+            feats = extract_features(w, a)
+            rr = pick_risk(u.profile, feats)
+            th = threshold_for(u.profile, settings, u.threshold)
+
+            qh = parse_quiet_hours(u.quiet_hours)
+            if qh:
+                # v1: quiet hours liczone wg czasu serwera (bez timezone komplikacji)
+                local_hour = datetime.now().hour
+                if is_in_quiet_hours(local_hour, qh):
+                    log.info(f"[SKIP quiet-hours] {u.phone} ({u.profile}) {loc.name} score={rr.score} th={th}")
+                    continue
+
+            last = state.last_sent(u.phone, u.profile)
+            cooldown = settings.cooldown_minutes * 60
+            if last and (now_ts - last) < cooldown:
+                log.info(f"[SKIP cooldown] {u.phone} ({u.profile}) {loc.name} score={rr.score} th={th}")
+                continue
+
+            if rr.score < th:
+                log.info(f"[OK] {u.phone} ({u.profile}) {loc.name} score={rr.score} th={th}")
+                continue
+
+            msg = generate_message(
+                openai_api_key=settings.openai_api_key,
+                model=settings.openai_model,
+                profile=u.profile,
+                location_name=loc.name,
+                risk_score=rr.score,
+                risk_label=rr.label,
+                reasons=rr.reasons,
+                feats=rr.raw,
+            )
+
+            if args.dry_run:
+                log.info(f"[DRY-RUN SEND] to={u.phone} loc={loc.name} score={rr.score}\n{msg}")
+            else:
+                sid = sender.send(u.phone, msg)  # type: ignore
+                state.mark_sent(u.phone, u.profile, rr.score)
+                log.info(f"[SENT] to={u.phone} sid={sid} loc={loc.name} score={rr.score}")
+
+        except Exception as e:
+            log.exception(f"[ERROR] user={u.phone} profile={u.profile} location={u.location}: {e}")
+
+    state.close()
+
+if __name__ == "__main__":
+    main()

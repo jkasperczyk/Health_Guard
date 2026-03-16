@@ -1,0 +1,136 @@
+from __future__ import annotations
+
+import argparse
+import logging
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import parse_qs, urlparse
+
+from app.config import load_settings
+from app.state import StateDB
+
+log = logging.getLogger("weatherguard.webhook")
+
+
+def _twiml(message: str) -> bytes:
+    msg = (message or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    xml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>{msg}</Message></Response>'
+    return xml.encode("utf-8")
+
+
+def _normalize_phone(from_field: str) -> str:
+    return (from_field or "").strip()
+
+
+def _parse_answer(body: str) -> tuple[str, str]:
+    t = (body or "").strip().upper()
+    t_ascii = (
+        t.replace("Ł", "L").replace("Ó", "O").replace("Ą", "A").replace("Ę", "E")
+         .replace("Ś", "S").replace("Ż", "Z").replace("Ź", "Z").replace("Ć", "C").replace("Ń", "N")
+    )
+
+    ans = "UNKNOWN"
+    if t_ascii.startswith("TAK") or t_ascii == "T":
+        ans = "TAK"
+    elif t_ascii.startswith("NIE") or t_ascii == "N":
+        ans = "NIE"
+
+    detail = ""
+    if "OBJAW" in t_ascii:
+        detail = "OBJAWY"
+    elif "SYGN" in t_ascii or "SIGN" in t_ascii:
+        detail = "SYGNAŁY"
+
+    return ans, detail
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "WeatherGuardWebhook/1.0"
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"OK\n")
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if parsed.path != "/twilio/inbound":
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"Not found\n")
+            return
+
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        raw = self.rfile.read(length) if length > 0 else b""
+        form = parse_qs(raw.decode("utf-8", errors="ignore"))
+
+        from_field = (form.get("From", [""])[0] or "").strip()
+        body = (form.get("Body", [""])[0] or "").strip()
+
+        phone = _normalize_phone(from_field)
+        ans, detail = _parse_answer(body)
+
+        try:
+            profile = "migraine"
+            settings = self.server.settings  # type: ignore[attr-defined]
+            db = StateDB(settings.state_db_path)
+            db.ensure_feedback_tables()
+
+            alert = db.get_last_alert(phone, profile)
+
+            db.insert_feedback(
+                phone=phone,
+                profile=profile,
+                answer=ans,
+                detail=detail,
+                alert_ts=alert["ts"] if alert else None,
+                alert_score=alert["score"] if alert else None,
+                alert_sid=alert["sid"] if alert else None,
+            )
+
+            if ans == "UNKNOWN":
+                resp_msg = "Proszę odpowiedz: TAK lub NIE (opcjonalnie dopisz: OBJAWY albo SYGNAŁY)."
+            else:
+                extra = f" ({detail})" if detail else ""
+                resp_msg = f"Dzięki! Zapisano Twoją odpowiedź: {ans}{extra}."
+
+            log.info(f"[INBOUND] phone={phone} ans={ans} detail={detail} linked={'yes' if alert else 'no'}")
+            payload = _twiml(resp_msg)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(payload)
+
+        except Exception:
+            log.exception("Webhook error")
+            payload = _twiml("Wystąpił błąd po stronie serwera. Spróbuj ponownie później.")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(payload)
+
+    def log_message(self, format, *args):
+        return
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--env", default="/opt/weatherguard/config/.env")
+    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--port", type=int, default=8020)
+    args = ap.parse_args()
+
+    settings = load_settings(args.env)
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+
+    httpd = HTTPServer((args.host, args.port), Handler)
+    httpd.settings = settings  # type: ignore[attr-defined]
+
+    log.info(f"Webhook listening on http://{args.host}:{args.port}/twilio/inbound")
+    httpd.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

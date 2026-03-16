@@ -1,0 +1,186 @@
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import Dict, Any, List, Optional
+
+@dataclass
+class RiskResult:
+    score: int
+    label: str
+    reasons: List[str]
+    raw: Dict[str, Any]
+
+def _clamp(x: float, lo: float = 0, hi: float = 100) -> int:
+    if x < lo: return int(lo)
+    if x > hi: return int(hi)
+    return int(round(x))
+
+def _abs(v: Optional[float]) -> float:
+    if isinstance(v, (int, float)):
+        return float(v) if v >= 0 else -float(v)
+    return 0.0
+
+def migraine_risk(feats: Dict[str, Any]) -> RiskResult:
+    """
+    Heurystyka pod migrenę:
+    - szybkie zmiany ciśnienia (najczęściej trigger)
+    - skok temp / odczuwalnej
+    - wysoka wilgotność
+    - porywy wiatru
+    - pogorszenie jakości powietrza (PM2.5 / AQI)
+    """
+    score = 0.0
+    reasons: List[str] = []
+
+    p6 = feats.get("pressure_delta_6h")
+    if isinstance(p6, (int, float)):
+        ap6 = abs(float(p6))
+        if ap6 >= 6:
+            score += 30
+            reasons.append(f"duża zmiana ciśnienia w 6h (~{p6:+.1f} hPa)")
+        elif ap6 >= 3:
+            score += 18
+            reasons.append(f"umiarkowana zmiana ciśnienia w 6h (~{p6:+.1f} hPa)")
+
+    t6 = feats.get("temp_delta_6h")
+    if isinstance(t6, (int, float)):
+        at6 = abs(float(t6))
+        if at6 >= 6:
+            score += 18
+            reasons.append(f"duży skok temperatury w 6h (~{t6:+.1f}°C)")
+        elif at6 >= 3:
+            score += 10
+            reasons.append(f"zmiana temperatury w 6h (~{t6:+.1f}°C)")
+
+    hum = feats.get("humidity_now")
+    if isinstance(hum, (int, float)):
+        if hum >= 85:
+            score += 10
+            reasons.append(f"wysoka wilgotność ({hum:.0f}%)")
+        elif hum >= 75:
+            score += 6
+            reasons.append(f"podwyższona wilgotność ({hum:.0f}%)")
+
+    gust = feats.get("gust_max_6h")
+    if isinstance(gust, (int, float)):
+        if gust >= 60:
+            score += 10
+            reasons.append(f"silne porywy wiatru (do {gust:.0f} km/h)")
+        elif gust >= 45:
+            score += 6
+            reasons.append(f"porywisty wiatr (do {gust:.0f} km/h)")
+
+    pm = feats.get("pm2_5_max_6h")
+    if isinstance(pm, (int, float)):
+        if pm >= 35:
+            score += 12
+            reasons.append(f"wyższe PM2.5 (do {pm:.0f} µg/m³)")
+        elif pm >= 20:
+            score += 7
+            reasons.append(f"podwyższone PM2.5 (do {pm:.0f} µg/m³)")
+
+    aqi = feats.get("aqi_max_6h")
+    if isinstance(aqi, (int, float)):
+        if aqi >= 120:
+            score += 12
+            reasons.append(f"gorsza jakość powietrza (AQI do {aqi:.0f})")
+        elif aqi >= 80:
+            score += 6
+            reasons.append(f"pogorszona jakość powietrza (AQI do {aqi:.0f})")
+
+    precip = feats.get("precip_prob_max_6h")
+    if isinstance(precip, (int, float)) and precip >= 70:
+        score += 4
+        reasons.append(f"wysokie prawdopodobieństwo opadów (do {precip:.0f}%)")
+
+    label = "low"
+    if score >= 70: label = "high"
+    elif score >= 45: label = "medium"
+
+    return RiskResult(score=_clamp(score), label=label, reasons=reasons[:5], raw=feats)
+
+def heart_risk(feats: Dict[str, Any]) -> RiskResult:
+    """
+    Heurystyka pod krążenie:
+    - upał/duża odczuwalna temp (obciążenie)
+    - gwałtowny skok/spadek ciśnienia
+    - porywy wiatru (stres termiczny)
+    - zła jakość powietrza (PM2.5/AQI)
+    - wysoka wilgotność przy wyższej temp (dyskomfort)
+    """
+    score = 0.0
+    reasons: List[str] = []
+
+    app = feats.get("apparent_now")
+    if isinstance(app, (int, float)):
+        if app >= 30:
+            score += 22
+            reasons.append(f"wysoka odczuwalna temperatura ({app:.0f}°C)")
+        elif app <= -10:
+            score += 18
+            reasons.append(f"niska odczuwalna temperatura ({app:.0f}°C)")
+
+    p3 = feats.get("pressure_delta_3h")
+    p6 = feats.get("pressure_delta_6h")
+    # bierz większą zmianę
+    ap = max(abs(float(p3)) if isinstance(p3,(int,float)) else 0.0,
+             abs(float(p6)) if isinstance(p6,(int,float)) else 0.0)
+    if ap >= 6:
+        score += 18
+        reasons.append("gwałtowna zmiana ciśnienia")
+    elif ap >= 3:
+        score += 10
+        reasons.append("zmienna sytuacja baryczna (ciśnienie)")
+
+    pm = feats.get("pm2_5_max_6h")
+    if isinstance(pm, (int, float)):
+        if pm >= 35:
+            score += 22
+            reasons.append(f"wyższe PM2.5 (do {pm:.0f} µg/m³)")
+        elif pm >= 20:
+            score += 12
+            reasons.append(f"podwyższone PM2.5 (do {pm:.0f} µg/m³)")
+
+    aqi = feats.get("aqi_max_6h")
+    if isinstance(aqi, (int, float)):
+        if aqi >= 120:
+            score += 18
+            reasons.append(f"gorsza jakość powietrza (AQI do {aqi:.0f})")
+        elif aqi >= 80:
+            score += 10
+            reasons.append(f"pogorszona jakość powietrza (AQI do {aqi:.0f})")
+
+    hum = feats.get("humidity_now")
+    temp = feats.get("temp_now")
+    if isinstance(hum, (int, float)) and isinstance(temp, (int, float)):
+        if hum >= 80 and temp >= 25:
+            score += 10
+            reasons.append(f"duża wilgotność przy ciepłej pogodzie ({hum:.0f}%, {temp:.0f}°C)")
+
+    gust = feats.get("gust_max_6h")
+    if isinstance(gust, (int, float)) and gust >= 60:
+        score += 6
+        reasons.append(f"silne porywy wiatru (do {gust:.0f} km/h)")
+
+    label = "low"
+    if score >= 75: label = "high"
+    elif score >= 50: label = "medium"
+
+    return RiskResult(score=_clamp(score), label=label, reasons=reasons[:5], raw=feats)
+
+def combined_risk(feats: Dict[str, Any]) -> RiskResult:
+    m = migraine_risk(feats)
+    h = heart_risk(feats)
+    # średnia z lekkim premiowaniem maksimum
+    score = max(m.score, h.score) * 0.6 + (m.score + h.score) * 0.2
+    reasons = []
+    # połącz unikalnie
+    seen = set()
+    for r in (m.reasons + h.reasons):
+        if r not in seen:
+            reasons.append(r); seen.add(r)
+        if len(reasons) >= 6:
+            break
+    label = "low"
+    if score >= 75: label = "high"
+    elif score >= 50: label = "medium"
+    return RiskResult(score=_clamp(score), label=label, reasons=reasons, raw=feats)

@@ -1,0 +1,124 @@
+2026-03-16 00:49:04,839 | INFO | [SKIP cisza nocna] +48505019600 (migraine) Zawiercie,PL
+2026-03-16 00:49:04,839 | INFO | [SKIP cisza nocna] +48505019600 (migraine) Zawiercie,PL
+2026-03-16 00:49:04,840 | INFO | [SKIP cisza nocna] +48791612655 (migraine) Sosnowiec,PL
+2026-03-16 00:49:04,840 | INFO | [SKIP cisza nocna] +48791612655 (migraine) Sosnowiec,PL
+2026-03-16 01:49:39,635 | INFO | [SKIP cisza nocna] +48505019600 (migraine) Zawiercie,PL
+2026-03-16 01:49:39,635 | INFO | [SKIP cisza nocna] +48505019600 (migraine) Zawiercie,PL
+2026-03-16 01:49:39,637 | INFO | [SKIP cisza nocna] +48791612655 (migraine) Sosnowiec,PL
+2026-03-16 01:49:39,637 | INFO | [SKIP cisza nocna] +48791612655 (migraine) Sosnowiec,PL
+2026-03-16 02:50:02,981 | INFO | [SKIP cisza nocna] +48505019600 (migraine) Zawiercie,PL
+2026-03-16 02:50:02,981 | INFO | [SKIP cisza nocna] +48505019600 (migraine) Zawiercie,PL
+2026-03-16 02:50:02,983 | INFO | [SKIP cisza nocna] +48791612655 (migraine) Sosnowiec,PL
+2026-03-16 02:50:02,983 | INFO | [SKIP cisza nocna] +48791612655 (migraine) Sosnowiec,PL
+2026-03-16 03:50:04,167 | INFO | [SKIP cisza nocna] +48505019600 (migraine) Zawiercie,PL
+2026-03-16 03:50:04,167 | INFO | [SKIP cisza nocna] +48505019600 (migraine) Zawiercie,PL
+2026-03-16 03:50:04,167 | INFO | [SKIP cisza nocna] +48791612655 (migraine) Sosnowiec,PL
+2026-03-16 03:50:04,167 | INFO | [SKIP cisza nocna] +48791612655 (migraine) Sosnowiec,PL
+2026-03-16 04:50:05,145 | INFO | [SKIP cisza nocna] +48505019600 (migraine) Zawiercie,PL
+2026-03-16 04:50:05,145 | INFO | [SKIP cisza nocna] +48505019600 (migraine) Zawiercie,PL
+2026-03-16 04:50:05,146 | INFO | [SKIP cisza nocna] +48791612655 (migraine) Sosnowiec,PL
+2026-03-16 04:50:05,146 | INFO | [SKIP cisza nocna] +48791612655 (migraine) Sosnowiec,PL
+2026-03-16 05:50:05,521 | INFO | [SKIP cisza nocna] +48505019600 (migraine) Zawiercie,PL
+2026-03-16 05:50:05,521 | INFO | [SKIP cisza nocna] +48505019600 (migraine) Zawiercie,PL
+2026-03-16 05:50:05,524 | INFO | [SKIP cisza nocna] +48791612655 (migraine) Sosnowiec,PL
+2026-03-16 05:50:05,524 | INFO | [SKIP cisza nocna] +48791612655 (migraine) Sosnowiec,PL
+2026-03-16 06:50:39,716 | INFO | [SKIP cisza nocna] +48505019600 (migraine) Zawiercie,PL
+2026-03-16 06:50:39,716 | INFO | [SKIP cisza nocna] +48505019600 (migraine) Zawiercie,PL
+2026-03-16 06:50:39,718 | INFO | [SKIP cisza nocna] +48791612655 (migraine) Sosnowiec,PL
+2026-03-16 06:50:39,718 | INFO | [SKIP cisza nocna] +48791612655 (migraine) Sosnowiec,PL
+2026-03-16 07:50:58,431 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Zawiercie&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 07:50:58,431 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Zawiercie&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 07:50:58,493 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.48766&longitude=19.41679&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 07:50:58,493 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.48766&longitude=19.41679&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 07:50:58,550 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.48766&longitude=19.41679&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 07:50:58,550 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.48766&longitude=19.41679&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 07:50:58,759 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.492504&lon=19.414764 "HTTP/1.1 200 OK"
+2026-03-16 07:50:58,759 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.492504&lon=19.414764 "HTTP/1.1 200 OK"
+2026-03-16 07:50:59,094 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 07:50:59,094 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 07:50:59,119 | INFO | [OK] +48505019600 (migraine) Zawiercie, Województwo śląskie, PL score=15 th=50
+2026-03-16 07:50:59,119 | INFO | [OK] +48505019600 (migraine) Zawiercie, Województwo śląskie, PL score=15 th=50
+2026-03-16 07:50:59,174 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Sosnowiec&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 07:50:59,174 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Sosnowiec&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 07:50:59,231 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.28682&longitude=19.10385&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 07:50:59,231 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.28682&longitude=19.10385&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 07:50:59,284 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.28682&longitude=19.10385&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 07:50:59,284 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.28682&longitude=19.10385&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 07:50:59,741 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.28521&lon=19.097885 "HTTP/1.1 200 OK"
+2026-03-16 07:50:59,741 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.28521&lon=19.097885 "HTTP/1.1 200 OK"
+2026-03-16 07:50:59,778 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 07:50:59,778 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 07:50:59,789 | INFO | [OK] +48791612655 (migraine) Sosnowiec, Województwo śląskie, PL score=6 th=50
+2026-03-16 07:50:59,789 | INFO | [OK] +48791612655 (migraine) Sosnowiec, Województwo śląskie, PL score=6 th=50
+2026-03-16 08:50:58,326 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Zawiercie&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,326 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Zawiercie&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,414 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.48766&longitude=19.41679&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,414 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.48766&longitude=19.41679&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,472 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.48766&longitude=19.41679&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,472 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.48766&longitude=19.41679&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,513 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.492504&lon=19.414764 "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,513 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.492504&lon=19.414764 "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,745 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,745 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,764 | INFO | [OK] +48505019600 (migraine) Zawiercie, Województwo śląskie, PL score=14 th=50
+2026-03-16 08:50:58,764 | INFO | [OK] +48505019600 (migraine) Zawiercie, Województwo śląskie, PL score=14 th=50
+2026-03-16 08:50:58,814 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Sosnowiec&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,814 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Sosnowiec&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,888 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.28682&longitude=19.10385&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,888 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.28682&longitude=19.10385&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,947 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.28682&longitude=19.10385&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,947 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.28682&longitude=19.10385&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,986 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.28521&lon=19.097885 "HTTP/1.1 200 OK"
+2026-03-16 08:50:58,986 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.28521&lon=19.097885 "HTTP/1.1 200 OK"
+2026-03-16 08:50:59,029 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 08:50:59,029 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 08:50:59,041 | INFO | [OK] +48791612655 (migraine) Sosnowiec, Województwo śląskie, PL score=10 th=50
+2026-03-16 08:50:59,041 | INFO | [OK] +48791612655 (migraine) Sosnowiec, Województwo śląskie, PL score=10 th=50
+2026-03-16 09:51:04,748 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Zawiercie&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 09:51:04,748 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Zawiercie&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 09:51:04,816 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.48766&longitude=19.41679&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 09:51:04,816 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.48766&longitude=19.41679&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 09:51:04,870 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.48766&longitude=19.41679&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 09:51:04,870 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.48766&longitude=19.41679&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 09:51:05,019 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.492504&lon=19.414764 "HTTP/1.1 200 OK"
+2026-03-16 09:51:05,019 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.492504&lon=19.414764 "HTTP/1.1 200 OK"
+2026-03-16 09:51:05,252 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 09:51:05,252 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 09:51:05,275 | INFO | [OK] +48505019600 (migraine) Zawiercie, Województwo śląskie, PL score=14 th=50
+2026-03-16 09:51:05,275 | INFO | [OK] +48505019600 (migraine) Zawiercie, Województwo śląskie, PL score=14 th=50
+2026-03-16 09:51:05,324 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Sosnowiec&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 09:51:05,324 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Sosnowiec&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 09:51:05,380 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.28682&longitude=19.10385&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 09:51:05,380 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.28682&longitude=19.10385&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 09:51:05,431 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.28682&longitude=19.10385&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 09:51:05,431 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.28682&longitude=19.10385&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 09:51:05,639 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.28521&lon=19.097885 "HTTP/1.1 200 OK"
+2026-03-16 09:51:05,639 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.28521&lon=19.097885 "HTTP/1.1 200 OK"
+2026-03-16 09:51:05,681 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 09:51:05,681 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 09:51:05,695 | INFO | [OK] +48791612655 (migraine) Sosnowiec, Województwo śląskie, PL score=10 th=50
+2026-03-16 09:51:05,695 | INFO | [OK] +48791612655 (migraine) Sosnowiec, Województwo śląskie, PL score=10 th=50
+2026-03-16 10:51:39,869 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Zawiercie&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 10:51:39,869 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Zawiercie&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 10:51:39,929 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.48766&longitude=19.41679&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 10:51:39,929 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.48766&longitude=19.41679&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 10:51:39,996 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.48766&longitude=19.41679&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 10:51:39,996 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.48766&longitude=19.41679&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 10:51:40,146 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.492504&lon=19.414764 "HTTP/1.1 200 OK"
+2026-03-16 10:51:40,146 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.492504&lon=19.414764 "HTTP/1.1 200 OK"
+2026-03-16 10:51:40,486 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 10:51:40,486 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 10:51:40,510 | INFO | [OK] +48505019600 (migraine) Zawiercie, Województwo śląskie, PL score=10 th=50
+2026-03-16 10:51:40,510 | INFO | [OK] +48505019600 (migraine) Zawiercie, Województwo śląskie, PL score=10 th=50
+2026-03-16 10:51:40,560 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Sosnowiec&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 10:51:40,560 | INFO | HTTP Request: GET https://geocoding-api.open-meteo.com/v1/search?name=Sosnowiec&count=1&language=pl&format=json&country_code=PL "HTTP/1.1 200 OK"
+2026-03-16 10:51:40,616 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.28682&longitude=19.10385&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 10:51:40,616 | INFO | HTTP Request: GET https://api.open-meteo.com/v1/forecast?latitude=50.28682&longitude=19.10385&hourly=temperature_2m%2Capparent_temperature%2Crelative_humidity_2m%2Csurface_pressure%2Cwind_gusts_10m%2Cprecipitation_probability%2Cprecipitation%2Cuv_index%2Cshortwave_radiation%2Ccloud_cover%2Ccape%2Cweather_code&forecast_days=2&timezone=UTC&timeformat=iso8601&windspeed_unit=kmh&temperature_unit=celsius "HTTP/1.1 200 OK"
+2026-03-16 10:51:40,665 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.28682&longitude=19.10385&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 10:51:40,665 | INFO | HTTP Request: GET https://air-quality-api.open-meteo.com/v1/air-quality?latitude=50.28682&longitude=19.10385&hourly=pm2_5%2Cus_aqi%2Calder_pollen%2Cbirch_pollen%2Cgrass_pollen%2Cmugwort_pollen%2Colive_pollen%2Cragweed_pollen&timezone=UTC&timeformat=iso8601&domains=cams_europe "HTTP/1.1 200 OK"
+2026-03-16 10:51:40,872 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.28521&lon=19.097885 "HTTP/1.1 200 OK"
+2026-03-16 10:51:40,872 | INFO | HTTP Request: GET https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=50.28521&lon=19.097885 "HTTP/1.1 200 OK"
+2026-03-16 10:51:40,909 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 10:51:40,909 | INFO | HTTP Request: GET https://services.swpc.noaa.gov/json/planetary_k_index_1m.json "HTTP/1.1 200 OK"
+2026-03-16 10:51:40,922 | INFO | [OK] +48791612655 (migraine) Sosnowiec, Województwo śląskie, PL score=10 th=50
+2026-03-16 10:51:40,922 | INFO | [OK] +48791612655 (migraine) Sosnowiec, Województwo śląskie, PL score=10 th=50

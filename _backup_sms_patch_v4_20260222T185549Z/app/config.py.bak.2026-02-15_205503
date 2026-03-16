@@ -1,0 +1,180 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
+
+# ---------- helpers ----------
+
+def _load_env_file(path: Optional[str]) -> None:
+    """Minimal .env loader (bez zależności)."""
+    if not path:
+        return
+    if not os.path.exists(path):
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k = k.strip()
+            v = v.strip().strip('"').strip("'")
+            # nie nadpisuj jeśli już jest ustawione w env (żeby systemd/OS mogło wygrać)
+            if k and k not in os.environ:
+                os.environ[k] = v
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)).strip())
+    except Exception:
+        return default
+
+def _env_str(name: str, default: str = "") -> str:
+    return os.getenv(name, default).strip()
+
+# ---------- models ----------
+
+@dataclass
+class Settings:
+    # paths
+    users_file: str
+    log_dir: str
+    state_db: str
+
+    # OpenAI
+    openai_api_key: str
+    openai_model: str
+
+    # Twilio / WhatsApp
+    twilio_account_sid: str
+    twilio_auth_token: str
+    twilio_whatsapp_from: str
+
+    # Weather
+    forecast_hours: int
+
+    # thresholds & behavior
+    default_threshold_migraine: int
+    default_threshold_heart: int
+    cooldown_minutes: int
+
+@dataclass
+class UserCfg:
+    phone: str              # e.g. whatsapp:+48...
+    profile: str            # migraine / heart / both
+    location: str           # "City,CC" or "lat,lon"
+    threshold: Optional[int] = None
+    quiet_hours: Optional[str] = None  # "22-7" or empty
+
+# ---------- public API expected by runner.py ----------
+
+def load_settings(env_path: Optional[str] = None) -> Settings:
+    # 1) load .env into process env
+    _load_env_file(env_path)
+
+    # 2) defaults
+    base_dir = _env_str("BASE_DIR", "/opt/weatherguard")
+    cfg_dir  = _env_str("CONFIG_DIR", f"{base_dir}/config")
+
+    users_file = _env_str("USERS_FILE", f"{cfg_dir}/users.txt")
+    log_dir    = _env_str("LOG_DIR", f"{base_dir}/logs")
+    state_db   = _env_str("STATE_DB", f"{base_dir}/state.json")
+
+    return Settings(
+        users_file=users_file,
+        log_dir=log_dir,
+        state_db=state_db,
+
+        openai_api_key=_env_str("OPENAI_API_KEY", ""),
+        openai_model=_env_str("OPENAI_MODEL", "gpt-4o-mini"),
+
+        twilio_account_sid=_env_str("TWILIO_ACCOUNT_SID", ""),
+        twilio_auth_token=_env_str("TWILIO_AUTH_TOKEN", ""),
+        twilio_whatsapp_from=_env_str("TWILIO_WHATSAPP_FROM", ""),
+
+        forecast_hours=_env_int("FORECAST_HOURS", 24),
+
+        default_threshold_migraine=_env_int("DEFAULT_THRESHOLD_MIGRAINE", 65),
+        default_threshold_heart=_env_int("DEFAULT_THRESHOLD_HEART", 70),
+        cooldown_minutes=_env_int("COOLDOWN_MINUTES", 360),
+    )
+
+def parse_users(users_file: str) -> List[UserCfg]:
+    users: List[UserCfg] = []
+    if not os.path.exists(users_file):
+        return users
+
+    with open(users_file, "r", encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+
+            # format: phone | profile | location | threshold | quiet_hours
+            parts = [p.strip() for p in line.split("|")]
+            # allow missing tail fields
+            while len(parts) < 5:
+                parts.append("")
+
+            phone = parts[0]
+            profile = parts[1].lower()
+            location = parts[2]
+            th_raw = parts[3]
+            qh_raw = parts[4]
+
+            if not phone or not profile or not location:
+                continue
+            if profile not in ("migraine", "heart", "both"):
+                continue
+
+            threshold = None
+            if th_raw:
+                try:
+                    threshold = int(th_raw)
+                except Exception:
+                    threshold = None
+
+            quiet_hours = qh_raw if qh_raw else None
+
+            users.append(UserCfg(
+                phone=phone,
+                profile=profile,
+                location=location,
+                threshold=threshold,
+                quiet_hours=quiet_hours
+            ))
+    return users
+
+def parse_quiet_hours(qh: Optional[str]) -> Optional[Tuple[int, int]]:
+    """
+    Input: "22-7" => (22,7). Return None if invalid.
+    """
+    if not qh:
+        return None
+    s = qh.strip()
+    if not s:
+        return None
+    if "-" not in s:
+        return None
+    a, b = [x.strip() for x in s.split("-", 1)]
+    try:
+        start = int(a); end = int(b)
+        if not (0 <= start <= 23 and 0 <= end <= 23):
+            return None
+        return (start, end)
+    except Exception:
+        return None
+
+def is_in_quiet_hours(hour: int, qh: Tuple[int, int]) -> bool:
+    start, end = qh
+    # same-day range e.g. 9-17
+    if start < end:
+        return start <= hour < end
+    # overnight range e.g. 22-7
+    if start > end:
+        return (hour >= start) or (hour < end)
+    # start == end => treat as "always quiet"
+    return True

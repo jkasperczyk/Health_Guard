@@ -1,0 +1,82 @@
+from __future__ import annotations
+from typing import Dict, Any, List, Optional
+import json
+import logging
+from openai import OpenAI
+
+log = logging.getLogger("weatherguard.ai")
+
+SYSTEM = (
+    "Jesteś asystentem aplikacji pogodowej dla osób wrażliwych na zmiany pogody. "
+    "Tworzysz krótkie, konkretne powiadomienia po polsku. "
+    "NIE diagnozujesz i nie udzielasz porad medycznych. "
+    "Na końcu zawsze dodaj: To nie jest porada medyczna."
+)
+
+def _fallback(location_name: str, risk_score: int, risk_label: str, reasons: List[str]) -> str:
+    base = f"⚠️ WeatherGuard: {location_name} — ryzyko {risk_score}/100 ({risk_label})\n"
+    why = "\n".join([f"- {r}" for r in (reasons or [])][:4]) or "- Zmienne warunki pogodowe"
+    return base + why + "\n\nTo nie jest porada medyczna."
+
+def generate_message(
+    openai_api_key: Optional[str],
+    model: str,
+    ai_mode: str,
+    profile: str,
+    location_name: str,
+    risk_score: int,
+    risk_label: str,
+    reasons: List[str],
+    feats: Dict[str, Any],
+) -> str:
+    mode = (ai_mode or "auto").lower()
+    if mode not in ("off", "auto", "on"):
+        mode = "auto"
+
+    if mode == "off":
+        log.info("AI_MODE=off → using fallback message.")
+        return _fallback(location_name, risk_score, risk_label, reasons)
+
+    if mode == "auto" and not openai_api_key:
+        log.info("AI_MODE=auto and no OPENAI_API_KEY → using fallback message.")
+        return _fallback(location_name, risk_score, risk_label, reasons)
+
+    if mode == "on" and not openai_api_key:
+        log.warning("AI_MODE=on but OPENAI_API_KEY missing → using fallback message.")
+        return _fallback(location_name, risk_score, risk_label, reasons)
+
+    payload = {
+        "profile": profile,
+        "location": location_name,
+        "risk_score": risk_score,
+        "risk_label": risk_label,
+        "reasons": reasons[:6],
+        "features": {k: feats.get(k) for k in feats.keys()},
+        "constraints": {"max_chars": 450, "no_links": True},
+    }
+
+    user = (
+        "Napisz krótką wiadomość WhatsApp (max ~450 znaków):\n"
+        "- 1 linia: emoji + krótki nagłówek\n"
+        "- 2–3 linie: dlaczego (prosto, bez żargonu)\n"
+        "- 1 linia: neutralna sugestia komfortowa\n"
+        "- 1 linia: To nie jest porada medyczna.\n\n"
+        f"Dane (JSON): {json.dumps(payload, ensure_ascii=False)}"
+    )
+
+    try:
+        client = OpenAI(api_key=openai_api_key)
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}],
+            temperature=0.4,
+            max_tokens=220,
+        )
+        txt = (resp.choices[0].message.content or "").strip()
+        if not txt:
+            return _fallback(location_name, risk_score, risk_label, reasons)
+        return txt
+    except Exception as e:
+        # np. 429 insufficient_quota → nie blokuj wysyłki
+        log.warning(f"AI call failed ({type(e).__name__}) → using fallback message.")
+        return _fallback(location_name, risk_score, risk_label, reasons)

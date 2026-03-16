@@ -1,0 +1,63 @@
+from __future__ import annotations
+
+import json
+import os
+import time
+from typing import Dict, Any, Optional, Tuple
+
+class StateDB:
+    """
+    Minimalny storage stanu:
+    - last_sent_ts per (phone, profile)
+    - last_score per (phone, profile)
+    zapis do pliku JSON.
+    """
+    def __init__(self, path: str):
+        self.path = path
+        self._data: Dict[str, Any] = {"last_sent": {}, "last_score": {}}
+        self._load()
+
+    def _load(self) -> None:
+        if not os.path.exists(self.path):
+            # ensure dir exists
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            return
+        try:
+            with open(self.path, "r", encoding="utf-8") as f:
+                self._data = json.load(f)
+            if "last_sent" not in self._data:
+                self._data["last_sent"] = {}
+            if "last_score" not in self._data:
+                self._data["last_score"] = {}
+        except Exception:
+            # jeśli plik uszkodzony, zaczynamy od zera (bez wywalania aplikacji)
+            self._data = {"last_sent": {}, "last_score": {}}
+
+    def _key(self, phone: str, profile: str) -> str:
+        return f"{phone}::{profile}"
+
+    def last_sent(self, phone: str, profile: str) -> Optional[int]:
+        k = self._key(phone, profile)
+        v = (self._data.get("last_sent") or {}).get(k)
+        if isinstance(v, int):
+            return v
+        if isinstance(v, float):
+            return int(v)
+        return None
+
+    def mark_sent(self, phone: str, profile: str, score: int) -> None:
+        k = self._key(phone, profile)
+        self._data.setdefault("last_sent", {})[k] = int(time.time())
+        self._data.setdefault("last_score", {})[k] = int(score)
+        self._save()
+
+    def _save(self) -> None:
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        tmp = self.path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self._data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, self.path)
+
+    def close(self) -> None:
+        # nic specjalnego, ale zostawiamy API
+        pass

@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+import os
+import sqlite3
+import time
+from typing import Optional
+
+DEFAULT_DB = '/opt/weatherguard/data/feedback.db'
+
+def _db_path() -> str:
+    return os.environ.get('WEATHERGUARD_FEEDBACK_DB', DEFAULT_DB)
+
+def _conn() -> sqlite3.Connection:
+    c = sqlite3.connect(_db_path())
+    c.execute('PRAGMA journal_mode=WAL;')
+    c.execute('PRAGMA synchronous=NORMAL;')
+    return c
+
+def ensure_schema() -> None:
+    c = _conn()
+    try:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS alerts (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              ts INTEGER NOT NULL,
+              phone TEXT NOT NULL,
+              profile TEXT NOT NULL,
+              location TEXT,
+              score INTEGER,
+              threshold INTEGER,
+              label TEXT,
+              reasons_json TEXT,
+              sid TEXT,
+              feedback_answer TEXT,
+              feedback_detail TEXT,
+              feedback_ts INTEGER
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS feedback (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              ts INTEGER NOT NULL,
+              phone TEXT NOT NULL,
+              answer TEXT NOT NULL,
+              detail TEXT,
+              raw TEXT,
+              remote_addr TEXT,
+              user_agent TEXT,
+              alert_id INTEGER
+            )
+        """)
+        cols = {r[1] for r in c.execute('PRAGMA table_info(feedback);').fetchall()}
+        if 'alert_id' not in cols:
+            c.execute('ALTER TABLE feedback ADD COLUMN alert_id INTEGER;')
+        cols_a = {r[1] for r in c.execute('PRAGMA table_info(alerts);').fetchall()}
+        for name, ddl in [
+            ('feedback_answer', 'ALTER TABLE alerts ADD COLUMN feedback_answer TEXT;'),
+            ('feedback_detail', 'ALTER TABLE alerts ADD COLUMN feedback_detail TEXT;'),
+            ('feedback_ts', 'ALTER TABLE alerts ADD COLUMN feedback_ts INTEGER;'),
+        ]:
+            if name not in cols_a:
+                c.execute(ddl)
+        c.execute('CREATE INDEX IF NOT EXISTS idx_alerts_phone_profile_ts ON alerts(phone, profile, ts);')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_feedback_phone_ts ON feedback(phone, ts);')
+        c.commit()
+    finally:
+        c.close()
+
+def record_alert(*, phone: str, profile: str, location: Optional[str]=None, score: Optional[int]=None, threshold: Optional[int]=None, label: Optional[str]=None, reasons_json: Optional[str]=None, sid: Optional[str]=None) -> int:
+    ensure_schema()
+    c = _conn()
+    try:
+        ts = int(time.time())
+        cur = c.execute("""
+            INSERT INTO alerts(ts, phone, profile, location, score, threshold, label, reasons_json, sid)
+            VALUES(?,?,?,?,?,?,?,?,?)
+        """, (ts, phone, profile, location, score, threshold, label, reasons_json, sid))
+        c.commit()
+        return int(cur.lastrowid)
+    finally:
+        c.close()
+
+def _latest_alert_id(phone: str, profile: Optional[str], window_seconds: int = 24*3600) -> Optional[int]:
+    ensure_schema()
+    c = _conn()
+    try:
+        since = int(time.time()) - int(window_seconds)
+        if profile:
+            row = c.execute("""
+                SELECT id FROM alerts WHERE phone=? AND profile=? AND ts>=? ORDER BY ts DESC LIMIT 1
+            """, (phone, profile, since)).fetchone()
+        else:
+            row = c.execute("""
+                SELECT id FROM alerts WHERE phone=? AND ts>=? ORDER BY ts DESC LIMIT 1
+            """, (phone, since)).fetchone()
+        return int(row[0]) if row else None
+    finally:
+        c.close()
+
+def record_feedback(*, phone: str, answer: str, detail: Optional[str]=None, raw: Optional[str]=None, remote_addr: Optional[str]=None, user_agent: Optional[str]=None, profile_hint: Optional[str]='migraine') -> Optional[int]:
+    ensure_schema()
+    alert_id = _latest_alert_id(phone, profile_hint) if profile_hint else _latest_alert_id(phone, None)
+    c = _conn()
+    try:
+        ts = int(time.time())
+        cur = c.execute("""
+            INSERT INTO feedback(ts, phone, answer, detail, raw, remote_addr, user_agent, alert_id)
+            VALUES(?,?,?,?,?,?,?,?)
+        """, (ts, phone, answer, detail, raw, remote_addr, user_agent, alert_id))
+        if alert_id is not None:
+            c.execute("""
+                UPDATE alerts SET feedback_answer=?, feedback_detail=?, feedback_ts=? WHERE id=?
+            """, (answer, detail, ts, alert_id))
+        c.commit()
+        return int(cur.lastrowid)
+    finally:
+        c.close()

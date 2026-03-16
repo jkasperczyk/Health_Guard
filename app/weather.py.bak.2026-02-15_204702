@@ -1,0 +1,178 @@
+from __future__ import annotations
+
+import re
+import requests
+from dataclasses import dataclass
+from typing import Dict, Any, Tuple, Optional, List
+
+GEO_URL = "https://geocoding-api.open-meteo.com/v1/search"
+FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+AIR_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
+
+@dataclass
+class Location:
+    lat: float
+    lon: float
+    name: str
+
+_latlon_re = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$")
+
+def resolve_location(location: str) -> Location:
+    """
+    location: "City,CC" OR "lat,lon"
+    """
+    m = _latlon_re.match(location)
+    if m:
+        lat = float(m.group(1)); lon = float(m.group(2))
+        return Location(lat=lat, lon=lon, name=f"{lat:.4f},{lon:.4f}")
+
+    # Geocoding
+    params = {"name": location, "count": 1, "language": "en", "format": "json"}
+    r = requests.get(GEO_URL, params=params, timeout=20)
+    r.raise_for_status()
+    data = r.json()
+    results = data.get("results") or []
+    if not results:
+        raise RuntimeError(f"Geocoding failed for location='{location}'")
+    x = results[0]
+    name = x.get("name") or location
+    country = x.get("country_code") or ""
+    admin = x.get("admin1") or ""
+    label = ", ".join([p for p in [name, admin, country] if p])
+    return Location(lat=float(x["latitude"]), lon=float(x["longitude"]), name=label)
+
+def fetch_weather(loc: Location, hours: int = 24) -> Dict[str, Any]:
+    """
+    Returns Open-Meteo forecast JSON with current + hourly arrays.
+    """
+    hourly = ",".join([
+        "temperature_2m",
+        "relative_humidity_2m",
+        "apparent_temperature",
+        "precipitation_probability",
+        "wind_gusts_10m",
+        "surface_pressure",
+    ])
+    current = ",".join([
+        "temperature_2m",
+        "relative_humidity_2m",
+        "apparent_temperature",
+        "precipitation_probability",
+        "wind_gusts_10m",
+        "surface_pressure",
+    ])
+    params = {
+        "latitude": loc.lat,
+        "longitude": loc.lon,
+        "timezone": "auto",
+        "forecast_hours": int(hours),
+        "hourly": hourly,
+        "current": current,
+    }
+    r = requests.get(FORECAST_URL, params=params, timeout=25)
+    r.raise_for_status()
+    return r.json()
+
+def fetch_air_quality(loc: Location, hours: int = 24) -> Dict[str, Any]:
+    """
+    Returns Open-Meteo air-quality JSON with current + hourly arrays.
+    """
+    hourly = ",".join([
+        "pm2_5",
+        "pm10",
+        "us_aqi",
+        "ozone",
+        "nitrogen_dioxide",
+        "sulphur_dioxide",
+        "carbon_monoxide",
+    ])
+    current = ",".join([
+        "pm2_5",
+        "us_aqi",
+    ])
+    params = {
+        "latitude": loc.lat,
+        "longitude": loc.lon,
+        "timezone": "auto",
+        "forecast_hours": int(hours),
+        "hourly": hourly,
+        "current": current,
+    }
+    r = requests.get(AIR_URL, params=params, timeout=25)
+    r.raise_for_status()
+    return r.json()
+
+def _safe_get_hourly(data: Dict[str, Any], key: str) -> List[Optional[float]]:
+    hourly = data.get("hourly") or {}
+    arr = hourly.get(key)
+    if isinstance(arr, list):
+        return arr
+    return []
+
+def _max_first_n(arr: List[Optional[float]], n: int) -> Optional[float]:
+    vals = [x for x in arr[:n] if isinstance(x, (int, float))]
+    return max(vals) if vals else None
+
+def _delta(arr: List[Optional[float]], n: int) -> Optional[float]:
+    # arr[0] - arr[n]
+    if len(arr) <= n:
+        return None
+    a = arr[0]; b = arr[n]
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return float(a) - float(b)
+    return None
+
+def extract_features(weather_json: Dict[str, Any], air_json: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Compute compact features used by risk + AI message.
+    Returns dict with keys expected in ai.py (some may be missing if API lacks data).
+    """
+    feats: Dict[str, Any] = {}
+
+    # Current values
+    cur = weather_json.get("current") or {}
+    feats["temp_now"] = cur.get("temperature_2m")
+    feats["humidity_now"] = cur.get("relative_humidity_2m")
+    feats["apparent_now"] = cur.get("apparent_temperature")
+    feats["pressure_now"] = cur.get("surface_pressure")
+    feats["precip_prob_now"] = cur.get("precipitation_probability")
+    feats["gust_now"] = cur.get("wind_gusts_10m")
+
+    acur = air_json.get("current") or {}
+    feats["pm2_5_now"] = acur.get("pm2_5")
+    feats["aqi_now"] = acur.get("us_aqi")
+
+    # Hourly series (first hours window)
+    pressure = _safe_get_hourly(weather_json, "surface_pressure")
+    temp = _safe_get_hourly(weather_json, "temperature_2m")
+    apparent = _safe_get_hourly(weather_json, "apparent_temperature")
+    humidity = _safe_get_hourly(weather_json, "relative_humidity_2m")
+    precip_prob = _safe_get_hourly(weather_json, "precipitation_probability")
+    gust = _safe_get_hourly(weather_json, "wind_gusts_10m")
+
+    pm25 = _safe_get_hourly(air_json, "pm2_5")
+    aqi = _safe_get_hourly(air_json, "us_aqi")
+
+    # Deltas (now - past) are less useful; we want "change ahead", so use future deltas:
+    # Use series as now+future. So delta_6h = future - now.
+    def future_minus_now(arr: List[Optional[float]], h: int) -> Optional[float]:
+        if len(arr) <= h:
+            return None
+        now = arr[0]; fut = arr[h]
+        if isinstance(now, (int,float)) and isinstance(fut, (int,float)):
+            return float(fut) - float(now)
+        return None
+
+    feats["pressure_delta_3h"] = future_minus_now(pressure, 3)
+    feats["pressure_delta_6h"] = future_minus_now(pressure, 6)
+
+    feats["temp_delta_6h"] = future_minus_now(temp, 6)
+    feats["apparent_delta_6h"] = future_minus_now(apparent, 6)
+
+    feats["precip_prob_max_6h"] = _max_first_n(precip_prob, 6)
+    feats["gust_max_6h"] = _max_first_n(gust, 6)
+
+    feats["pm2_5_max_6h"] = _max_first_n(pm25, 6)
+    feats["aqi_max_6h"] = _max_first_n(aqi, 6)
+
+    return feats

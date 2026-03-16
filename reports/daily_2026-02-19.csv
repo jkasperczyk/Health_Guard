@@ -1,0 +1,18 @@
+alert_id,ts_utc,phone,profile,location,score,threshold,label,sid,feedback_answer,feedback_detail,feedback_ts_utc
+5,2026-02-18 20:55:54 UTC,whatsapp:+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",11,10,niskie,SMbedd9f93d08a983c2073c0502f1e54da,NIE,,2026-02-18 20:56:17 UTC
+6,2026-02-18 21:56:03 UTC,whatsapp:+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",16,10,niskie,SMddfd8b24671836f1017bd37ac643302a,,,
+7,2026-02-19 11:59:09 UTC,whatsapp:+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",10,10,niskie,SM147cd0761e062340dc88855185fd7413,,,
+8,2026-02-19 12:59:10 UTC,whatsapp:+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",10,10,niskie,SM80e903603274aaf05d25ddef28077b38,,,
+9,2026-02-19 13:59:10 UTC,whatsapp:+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",10,10,niskie,SM79b0eff21a87a5ac42b129c97465a462,,,
+10,2026-02-19 14:59:11 UTC,whatsapp:+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",23,10,niskie,SM80a68520dbfe33854ef373f07401e47c,,,
+11,2026-02-19 15:59:43 UTC,whatsapp:+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",23,10,niskie,SM6cf4f90b4d9c551d2bb6f14b6546d89e,,,
+12,2026-02-19 17:00:17 UTC,whatsapp:+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",23,10,niskie,SM0ed38b8a8cccdae9a17fdf842557ddb2,,,
+13,2026-02-19 18:00:16 UTC,whatsapp:+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",23,10,niskie,SMc3e2f58df6c56159fa4efcf97f64025d,,,
+14,2026-02-19 19:00:15 UTC,whatsapp:+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",26,10,niskie,SM2aefab427f68318f5e33ebf9dd47dd42,,,
+15,2026-02-19 20:14:14 UTC,+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",26,10,niskie,SMc8b884a925e67cb6f815a4fb93fe396f,,,
+16,2026-02-19 20:25:19 UTC,+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",26,10,niskie,SM18ae1b06ad14b5700ce2bdb97c6c2242,,,
+17,2026-02-19 20:26:17 UTC,+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",26,10,niskie,SM4262c5b953321dd7253a1532cc776a4b,,,
+18,2026-02-19 20:27:53 UTC,+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",26,10,niskie,SMf50d44498d9f3136a22f19e99b5d9779,,,
+19,2026-02-19 20:30:29 UTC,+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",26,10,niskie,SM2b754c7d3b688634303d64c79ee8e01f,,,
+20,2026-02-19 20:31:21 UTC,+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",26,10,niskie,SM2258c0daa1efcef07e8f43061b9ff47f,,,
+21,2026-02-19 20:40:01 UTC,+48505019600,migraine,"Zawiercie, Województwo śląskie, PL",26,10,niskie,SMe2afd8035d129b961135416e3499b26b,NIE,,2026-02-19 20:40:26 UTC

@@ -1,0 +1,171 @@
+from __future__ import annotations
+
+import logging
+from typing import Any, Dict, List
+
+log = logging.getLogger("weatherguard.ai")
+
+def _alert_title(profile: str) -> str:
+    if profile == "migraine":
+        return "Alert migrenowy"
+    if profile == "allergy":
+        return "Alert alergiczny"
+    if profile == "heart":
+        return "Alert dla chorób serca"
+    if profile == "both":
+        return "Alert zdrowotny (migrena + serce)"
+    return "Alert zdrowotny"
+
+def _severity_pl(score: int) -> str:
+    # spójne z risk.py: niskie / umiarkowane / wysokie
+    if score >= 75:
+        return "wysokie"
+    if score >= 50:
+        return "umiarkowane"
+    return "niskie"
+
+def _profile_focus(profile: str) -> str:
+    if profile == "migraine":
+        return "ryzyko wystąpienia lub nasilenia objawów migreny (ból głowy, aura, nadwrażliwość)."
+    if profile == "allergy":
+        return "ryzyko nasilenia objawów alergii/astmy (katar, kichanie, łzawienie, kaszel, duszność)."
+    if profile == "heart":
+        return "ryzyko pogorszenia samopoczucia u osób z problemami krążeniowymi (np. skoki ciśnienia, zadyszka, osłabienie)."
+    if profile == "both":
+        return "ryzyko objawów migrenowych oraz obciążenia układu krążenia."
+    return "ryzyko pogorszenia samopoczucia."
+
+def _fallback_message(profile: str, location_name: str, score: int, reasons: List[str]) -> str:
+    title = _alert_title(profile)
+    sev = _severity_pl(score)
+    focus = _profile_focus(profile)
+
+    why = " • ".join(reasons[:3]) if reasons else "Brak silnych czynników, ale przekroczono próg alertu."
+    advice = []
+    if profile == "migraine":
+        if score >= 75:
+            advice = ["Ogranicz bodźce (światło/hałas), zaplanuj przerwy.", "Nawodnij się i unikaj przeciążeń.", "Miej pod ręką swój sprawdzony plan postępowania."]
+        elif score >= 50:
+            advice = ["Zadbaj o regularne picie i przerwy.", "Unikaj gwałtownych zmian temperatury/wyjść bez potrzeby.", "Obserwuj pierwsze sygnały (ból, aura)."]
+        else:
+            advice = ["Obserwuj samopoczucie i trzymaj rutynę.", "Jeśli pojawią się objawy, zareaguj wcześnie swoim standardowym sposobem."]
+    elif profile == "allergy":
+        if score >= 75:
+            advice = ["Ogranicz czas na zewnątrz, szczególnie w wietrznych porach.", "Rozważ zamknięcie okien / filtrację, jeśli masz taką możliwość.", "Stosuj swój standardowy plan leczenia/ochrony."]
+        elif score >= 50:
+            advice = ["Jeśli możesz, unikaj długich spacerów w miejscach pylących.", "Po powrocie umyj twarz/ręce, zmień ubranie.", "Obserwuj oddech i reakcje alergiczne."]
+        else:
+            advice = ["Obserwuj objawy i miej pod ręką swoje środki.", "W razie nasilenia ogranicz ekspozycję."]
+    else:  # heart / both
+        if score >= 75:
+            advice = ["Unikaj nagłego wysiłku i wychłodzenia/przegrzania.", "Ubierz się adekwatnie i rób przerwy.", "Monitoruj objawy zgodnie ze swoim planem."]
+        elif score >= 50:
+            advice = ["Zadbaj o spokojne tempo dnia i przerwy.", "Unikaj skrajnych warunków (zimno/duża wilgotność).", "Obserwuj ciśnienie/samopoczucie, jeśli zwykle to robisz."]
+        else:
+            advice = ["Zachowaj ostrożność i obserwuj samopoczucie."]
+
+    msg = (
+        f"*{title}*\n"
+        f"{location_name}: Ryzyko {sev} ({score}/100) – {focus}\n"
+        f"Powody: {why}\n"
+        f"Co możesz zrobić: " + "; ".join(advice[:3]) + "\n"
+        f"To nie jest porada medyczna."
+    )
+    return msg
+
+def generate_message(
+    openai_api_key: str,
+    model: str,
+    ai_mode: str,
+    profile: str,
+    location_name: str,
+    risk_score: int,
+    risk_label: str,
+    reasons: List[str],
+    feats: Dict[str, Any],
+) -> str:
+    """
+    Zwraca wiadomość gotową do wysłania na WhatsApp:
+    - zawsze po polsku
+    - z nagłówkiem typu alertu
+    - treść o ryzyku objawów (nie ogólne "odczucie pogody")
+    - stopniowanie wg score
+    """
+    # Ujednolicenie profilu "both" (z config/runner może przyjść jako "both")
+    p = profile or "migraine"
+    title = _alert_title(p)
+    sev = _severity_pl(int(risk_score))
+    focus = _profile_focus(p)
+
+    # AI mode handling
+    mode = (ai_mode or "auto").lower()
+    if mode == "off" or not openai_api_key:
+        log.info("AI_MODE=off → using fallback message.")
+        return _fallback_message(p, location_name, int(risk_score), reasons)
+
+    # Przygotuj krótkie dane wejściowe dla LLM: tylko kluczowe powody i parametry
+    reasons_txt = "\n".join([f"- {r}" for r in (reasons or [])][:5]) or "- (brak wykrytych silnych czynników)"
+    # Minimalny kontekst liczbowy (żeby AI miało materiał, ale nie odpływało w prognozę pogody)
+    key_nums = {
+        "pressure_delta_3h": feats.get("pressure_delta_3h"),
+        "pressure_delta_6h": feats.get("pressure_delta_6h"),
+        "temp_delta_6h": feats.get("temp_delta_6h"),
+        "apparent_delta_6h": feats.get("apparent_delta_6h"),
+        "humidity_now": feats.get("humidity_now"),
+        "pm2_5_max_6h": feats.get("pm2_5_max_6h"),
+        "pm10_max_6h": feats.get("pm10_max_6h"),
+        "aqi_us_max_6h": feats.get("aqi_us_max_6h"),
+        "ozone_max_6h": feats.get("ozone_max_6h"),
+        "no2_max_6h": feats.get("no2_max_6h"),
+        "uv_max_6h": feats.get("uv_max_6h"),
+        "thunder_next_6h": feats.get("thunder_next_6h"),
+        "pollen_max_6h": feats.get("pollen_max_6h"),
+    }
+
+    system = (
+        "Jesteś asystentem tworzącym krótkie, konkretne alerty zdrowotne na WhatsApp.\n"
+        "ZASADY (OBOWIĄZKOWE):\n"
+        "- Pisz WYŁĄCZNIE po polsku.\n"
+        "- NIE opisuj ogólnie pogody ani 'odczuwania pogody'. Skup się na ryzyku objawów dla danego profilu.\n"
+        "- Zawsze zachowaj strukturę dokładnie w 5 liniach:\n"
+        "  1) *<NAGŁÓWEK ALERTU>*\n"
+        "  2) <Lokalizacja>: Ryzyko <niskie/umiarkowane/wysokie> (<score>/100) – jedno zdanie o ryzyku objawów\n"
+        "  3) Powody: maks. 3 krótkie frazy (z podanych powodów)\n"
+        "  4) Co możesz zrobić: 2–3 praktyczne wskazówki (ogólne, bez dawkowania leków)\n"
+        "  5) To nie jest porada medyczna.\n"
+        "- Nigdy nie używaj słów low/high/medium.\n"
+        "- Bez długich akapitów, bez lania wody, bez emotek (poza tym, co jest w nagłówku jeśli już).\n"
+    )
+
+    user = (
+        f"NAGŁÓWEK: {title}\n"
+        f"LOKALIZACJA: {location_name}\n"
+        f"PROFIL: {p}\n"
+        f"RYZYKO: {sev} ({int(risk_score)}/100)\n"
+        f"KONTEKST: {focus}\n"
+        f"POWODY (użyj max 3):\n{reasons_txt}\n"
+        f"DANE LICZBOWE (opcjonalnie do jednego krótkiego odniesienia, bez prognozowania pogody): {key_nums}\n"
+    )
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=openai_api_key)
+
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=0.3,
+            max_tokens=220,
+        )
+        txt = (resp.choices[0].message.content or "").strip()
+        # Minimalna walidacja: jeśli model nie da nagłówka, dołącz fallback
+        if not txt.startswith("*"):
+            return _fallback_message(p, location_name, int(risk_score), reasons)
+        return txt
+
+    except Exception as e:
+        log.warning(f"AI failed → fallback. err={e}")
+        return _fallback_message(p, location_name, int(risk_score), reasons)

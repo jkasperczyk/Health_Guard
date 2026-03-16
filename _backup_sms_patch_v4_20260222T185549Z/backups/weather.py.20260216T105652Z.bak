@@ -1,0 +1,295 @@
+from __future__ import annotations
+
+import re
+import requests
+from dataclasses import dataclass
+from typing import Dict, Any, Optional, List
+
+GEO_URL = "https://geocoding-api.open-meteo.com/v1/search"
+FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+AIR_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
+
+@dataclass
+class Location:
+    lat: float
+    lon: float
+    name: str
+
+_latlon_re = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$")
+
+def resolve_location(location: str) -> Location:
+    loc_raw = (location or "").strip()
+
+    m = _latlon_re.match(loc_raw)
+    if m:
+        lat = float(m.group(1)); lon = float(m.group(2))
+        return Location(lat=lat, lon=lon, name=f"{lat:.4f},{lon:.4f}")
+
+    name = loc_raw
+    country = None
+    if "," in loc_raw:
+        parts = [p.strip() for p in loc_raw.split(",") if p.strip()]
+        if len(parts) >= 2 and len(parts[-1]) == 2:
+            country = parts[-1].upper()
+            name = ", ".join(parts[:-1]).strip()
+        else:
+            name = loc_raw.replace(",", " ")
+
+    def geocode(q_name: str, cc: Optional[str]) -> Optional[Location]:
+        params = {"name": q_name, "count": 5, "language": "en", "format": "json"}
+        if cc:
+            params["countryCode"] = cc
+        r = requests.get(GEO_URL, params=params, timeout=20)
+        r.raise_for_status()
+        data = r.json()
+        results = data.get("results") or []
+        if not results:
+            return None
+        x = results[0]
+        label_name = x.get("name") or q_name
+        admin = x.get("admin1") or ""
+        cc2 = x.get("country_code") or cc or ""
+        label = ", ".join([p for p in [label_name, admin, cc2] if p])
+        return Location(lat=float(x["latitude"]), lon=float(x["longitude"]), name=label)
+
+    got = geocode(name, country)
+    if got:
+        return got
+    if country:
+        got = geocode(f"{name} {country}", None)
+        if got:
+            return got
+    got = geocode(loc_raw.replace(",", " "), None)
+    if got:
+        return got
+    if "," in loc_raw:
+        first = loc_raw.split(",", 1)[0].strip()
+        if first:
+            got = geocode(first, None)
+            if got:
+                return got
+
+    raise RuntimeError(f"Geocoding failed for location='{location}'")
+
+def fetch_weather(loc: Location, hours: int = 24) -> Dict[str, Any]:
+    hourly = ",".join([
+        "temperature_2m",
+        "relative_humidity_2m",
+        "apparent_temperature",
+        "precipitation_probability",
+        "precipitation",
+        "rain",
+        "showers",
+        "wind_gusts_10m",
+        "surface_pressure",
+        "pressure_msl",
+        "cloud_cover",
+        "shortwave_radiation",
+        "weather_code",
+        "cape",
+    ])
+    current = ",".join([
+        "temperature_2m",
+        "relative_humidity_2m",
+        "apparent_temperature",
+        "precipitation_probability",
+        "wind_gusts_10m",
+        "surface_pressure",
+        "pressure_msl",
+        "cloud_cover",
+        "shortwave_radiation",
+        "weather_code",
+        "cape",
+    ])
+    params = {
+        "latitude": loc.lat,
+        "longitude": loc.lon,
+        "timezone": "auto",
+        "forecast_hours": int(hours),
+        "hourly": hourly,
+        "current": current,
+    }
+    r = requests.get(FORECAST_URL, params=params, timeout=25)
+    r.raise_for_status()
+    return r.json()
+
+def fetch_air_quality(loc: Location, hours: int = 24) -> Dict[str, Any]:
+    hourly = ",".join([
+        "pm2_5",
+        "pm10",
+        "us_aqi",
+        "european_aqi",
+        "ozone",
+        "nitrogen_dioxide",
+        "sulphur_dioxide",
+        "carbon_monoxide",
+        "dust",
+        "uv_index",
+        "uv_index_clear_sky",
+        "alder_pollen",
+        "birch_pollen",
+        "grass_pollen",
+        "mugwort_pollen",
+        "olive_pollen",
+        "ragweed_pollen",
+    ])
+    current = ",".join([
+        "pm2_5",
+        "pm10",
+        "us_aqi",
+        "european_aqi",
+        "ozone",
+        "nitrogen_dioxide",
+        "dust",
+        "uv_index",
+        "alder_pollen",
+        "birch_pollen",
+        "grass_pollen",
+        "mugwort_pollen",
+        "ragweed_pollen",
+    ])
+    params = {
+        "latitude": loc.lat,
+        "longitude": loc.lon,
+        "timezone": "auto",
+        "forecast_hours": int(hours),
+        "hourly": hourly,
+        "current": current,
+    }
+    r = requests.get(AIR_URL, params=params, timeout=25)
+    r.raise_for_status()
+    return r.json()
+
+def _safe_get_hourly(data: Dict[str, Any], key: str) -> List[Any]:
+    hourly = data.get("hourly") or {}
+    arr = hourly.get(key)
+    return arr if isinstance(arr, list) else []
+
+def _safe_num(x: Any) -> Optional[float]:
+    return float(x) if isinstance(x, (int, float)) else None
+
+def _max_first_n(arr: List[Any], n: int) -> Optional[float]:
+    vals = [_safe_num(x) for x in arr[:n]]
+    vals = [v for v in vals if v is not None]
+    return max(vals) if vals else None
+
+def _min_first_n(arr: List[Any], n: int) -> Optional[float]:
+    vals = [_safe_num(x) for x in arr[:n]]
+    vals = [v for v in vals if v is not None]
+    return min(vals) if vals else None
+
+def _sum_first_n(arr: List[Any], n: int) -> Optional[float]:
+    vals = [_safe_num(x) for x in arr[:n]]
+    vals = [v for v in vals if v is not None]
+    return sum(vals) if vals else None
+
+def extract_features(weather_json: Dict[str, Any], air_json: Dict[str, Any]) -> Dict[str, Any]:
+    feats: Dict[str, Any] = {}
+
+    cur = weather_json.get("current") or {}
+    feats["temp_now"] = cur.get("temperature_2m")
+    feats["humidity_now"] = cur.get("relative_humidity_2m")
+    feats["apparent_now"] = cur.get("apparent_temperature")
+    feats["precip_prob_now"] = cur.get("precipitation_probability")
+    feats["gust_now"] = cur.get("wind_gusts_10m")
+    feats["cloud_now"] = cur.get("cloud_cover")
+    feats["sw_rad_now"] = cur.get("shortwave_radiation")
+    feats["weather_code_now"] = cur.get("weather_code")
+    feats["cape_now"] = cur.get("cape")
+
+    p = cur.get("surface_pressure")
+    if p is None:
+        p = cur.get("pressure_msl")
+    feats["pressure_now"] = p
+
+    acur = air_json.get("current") or {}
+    feats["pm2_5_now"] = acur.get("pm2_5")
+    feats["pm10_now"] = acur.get("pm10")
+    feats["aqi_us_now"] = acur.get("us_aqi")
+    feats["aqi_eu_now"] = acur.get("european_aqi")
+    feats["ozone_now"] = acur.get("ozone")
+    feats["no2_now"] = acur.get("nitrogen_dioxide")
+    feats["dust_now"] = acur.get("dust")
+    feats["uv_now"] = acur.get("uv_index")
+
+    for k in ["alder_pollen","birch_pollen","grass_pollen","mugwort_pollen","olive_pollen","ragweed_pollen"]:
+        feats[f"{k}_now"] = acur.get(k)
+
+    pressure = _safe_get_hourly(weather_json, "surface_pressure")
+    if not pressure:
+        pressure = _safe_get_hourly(weather_json, "pressure_msl")
+
+    temp = _safe_get_hourly(weather_json, "temperature_2m")
+    apparent = _safe_get_hourly(weather_json, "apparent_temperature")
+    precip_prob = _safe_get_hourly(weather_json, "precipitation_probability")
+    precip = _safe_get_hourly(weather_json, "precipitation")
+    rain = _safe_get_hourly(weather_json, "rain")
+    showers = _safe_get_hourly(weather_json, "showers")
+    gust = _safe_get_hourly(weather_json, "wind_gusts_10m")
+    cloud = _safe_get_hourly(weather_json, "cloud_cover")
+    swrad = _safe_get_hourly(weather_json, "shortwave_radiation")
+    wcode = _safe_get_hourly(weather_json, "weather_code")
+    cape = _safe_get_hourly(weather_json, "cape")
+
+    pm25 = _safe_get_hourly(air_json, "pm2_5")
+    pm10 = _safe_get_hourly(air_json, "pm10")
+    aqi_us = _safe_get_hourly(air_json, "us_aqi")
+    aqi_eu = _safe_get_hourly(air_json, "european_aqi")
+    ozone = _safe_get_hourly(air_json, "ozone")
+    no2 = _safe_get_hourly(air_json, "nitrogen_dioxide")
+    dust = _safe_get_hourly(air_json, "dust")
+    uv = _safe_get_hourly(air_json, "uv_index")
+
+    pollen = {k: _safe_get_hourly(air_json, k) for k in [
+        "alder_pollen","birch_pollen","grass_pollen","mugwort_pollen","olive_pollen","ragweed_pollen"
+    ]}
+
+    def future_minus_now(arr: List[Any], h: int) -> Optional[float]:
+        if len(arr) <= h:
+            return None
+        now = _safe_num(arr[0]); fut = _safe_num(arr[h])
+        if now is None or fut is None:
+            return None
+        return float(fut) - float(now)
+
+    feats["pressure_delta_3h"] = future_minus_now(pressure, 3)
+    feats["pressure_delta_6h"] = future_minus_now(pressure, 6)
+    feats["temp_delta_6h"] = future_minus_now(temp, 6)
+    feats["apparent_delta_6h"] = future_minus_now(apparent, 6)
+
+    feats["precip_prob_max_6h"] = _max_first_n(precip_prob, 6)
+    feats["gust_max_6h"] = _max_first_n(gust, 6)
+
+    feats["pm2_5_max_6h"] = _max_first_n(pm25, 6)
+    feats["pm10_max_6h"] = _max_first_n(pm10, 6)
+    feats["aqi_us_max_6h"] = _max_first_n(aqi_us, 6)
+    feats["aqi_eu_max_6h"] = _max_first_n(aqi_eu, 6)
+    feats["ozone_max_6h"] = _max_first_n(ozone, 6)
+    feats["no2_max_6h"] = _max_first_n(no2, 6)
+    feats["dust_max_6h"] = _max_first_n(dust, 6)
+
+    feats["uv_max_6h"] = _max_first_n(uv, 6)
+    feats["sw_rad_max_6h"] = _max_first_n(swrad, 6)
+    feats["cloud_min_6h"] = _min_first_n(cloud, 6)
+
+    thunder_next_6h = False
+    for x in wcode[:6]:
+        xi = int(x) if isinstance(x, (int, float)) else None
+        if xi in (95, 96, 99):
+            thunder_next_6h = True
+            break
+    feats["thunder_next_6h"] = thunder_next_6h
+    feats["cape_max_6h"] = _max_first_n(cape, 6)
+    feats["precip_sum_6h"] = _sum_first_n(precip, 6)
+    feats["rain_sum_6h"] = _sum_first_n(rain, 6)
+    feats["showers_sum_6h"] = _sum_first_n(showers, 6)
+
+    pollen_maxes = []
+    for k, arr in pollen.items():
+        m6 = _max_first_n(arr, 6)
+        feats[f"{k}_max_6h"] = m6
+        if m6 is not None:
+            pollen_maxes.append(m6)
+    feats["pollen_max_6h"] = max(pollen_maxes) if pollen_maxes else None
+
+    return feats

@@ -1,0 +1,182 @@
+from __future__ import annotations
+
+import re
+import requests
+from dataclasses import dataclass
+from typing import Dict, Any, Optional, List
+
+GEO_URL = "https://geocoding-api.open-meteo.com/v1/search"
+FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+AIR_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
+
+@dataclass
+class Location:
+    lat: float
+    lon: float
+    name: str
+
+_latlon_re = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$")
+
+def resolve_location(location: str) -> Location:
+    """
+    location: "City,CC" OR "lat,lon"
+    Example: "Zawiercie,PL"
+    """
+    loc_raw = (location or "").strip()
+
+    m = _latlon_re.match(loc_raw)
+    if m:
+        lat = float(m.group(1)); lon = float(m.group(2))
+        return Location(lat=lat, lon=lon, name=f"{lat:.4f},{lon:.4f}")
+
+    # Parse "City,CC" (CC = ISO-3166 alpha2)
+    name = loc_raw
+    country = None
+    if "," in loc_raw:
+        parts = [p.strip() for p in loc_raw.split(",") if p.strip()]
+        if len(parts) >= 2 and len(parts[-1]) == 2:
+            country = parts[-1].upper()
+            name = ", ".join(parts[:-1]).strip()
+        else:
+            # e.g. "City, Region" -> try as space-separated
+            name = loc_raw.replace(",", " ")
+
+    def geocode(q_name: str, cc: Optional[str]) -> Optional[Location]:
+        params = {"name": q_name, "count": 5, "language": "en", "format": "json"}
+        if cc:
+            params["countryCode"] = cc  # IMPORTANT: Open-Meteo uses countryCode camelCase
+        r = requests.get(GEO_URL, params=params, timeout=20)
+        r.raise_for_status()
+        data = r.json()
+        results = data.get("results") or []
+        if not results:
+            return None
+        x = results[0]
+        label_name = x.get("name") or q_name
+        admin = x.get("admin1") or ""
+        cc2 = x.get("country_code") or cc or ""
+        label = ", ".join([p for p in [label_name, admin, cc2] if p])
+        return Location(lat=float(x["latitude"]), lon=float(x["longitude"]), name=label)
+
+    # Try with country filter if provided
+    got = geocode(name, country)
+    if got:
+        return got
+
+    # Fallback 1: try "City CC" (some strings match better)
+    if country:
+        got = geocode(f"{name} {country}", None)
+        if got:
+            return got
+
+    # Fallback 2: try raw name without commas
+    got = geocode(loc_raw.replace(",", " "), None)
+    if got:
+        return got
+
+    # Fallback 3: try just the part before comma (if any), without country
+    if "," in loc_raw:
+        first = loc_raw.split(",", 1)[0].strip()
+        if first:
+            got = geocode(first, None)
+            if got:
+                return got
+
+    raise RuntimeError(f"Geocoding failed for location='{location}'")
+
+def fetch_weather(loc: Location, hours: int = 24) -> Dict[str, Any]:
+    hourly = ",".join([
+        "temperature_2m",
+        "relative_humidity_2m",
+        "apparent_temperature",
+        "precipitation_probability",
+        "wind_gusts_10m",
+        "surface_pressure",
+    ])
+    current = hourly
+    params = {
+        "latitude": loc.lat,
+        "longitude": loc.lon,
+        "timezone": "auto",
+        "forecast_hours": int(hours),
+        "hourly": hourly,
+        "current": current,
+    }
+    r = requests.get(FORECAST_URL, params=params, timeout=25)
+    r.raise_for_status()
+    return r.json()
+
+def fetch_air_quality(loc: Location, hours: int = 24) -> Dict[str, Any]:
+    hourly = ",".join([
+        "pm2_5",
+        "pm10",
+        "us_aqi",
+        "ozone",
+        "nitrogen_dioxide",
+        "sulphur_dioxide",
+        "carbon_monoxide",
+    ])
+    current = ",".join(["pm2_5", "us_aqi"])
+    params = {
+        "latitude": loc.lat,
+        "longitude": loc.lon,
+        "timezone": "auto",
+        "forecast_hours": int(hours),
+        "hourly": hourly,
+        "current": current,
+    }
+    r = requests.get(AIR_URL, params=params, timeout=25)
+    r.raise_for_status()
+    return r.json()
+
+def _safe_get_hourly(data: Dict[str, Any], key: str) -> List[Optional[float]]:
+    hourly = data.get("hourly") or {}
+    arr = hourly.get(key)
+    return arr if isinstance(arr, list) else []
+
+def _max_first_n(arr: List[Optional[float]], n: int) -> Optional[float]:
+    vals = [x for x in arr[:n] if isinstance(x, (int, float))]
+    return max(vals) if vals else None
+
+def extract_features(weather_json: Dict[str, Any], air_json: Dict[str, Any]) -> Dict[str, Any]:
+    feats: Dict[str, Any] = {}
+
+    cur = weather_json.get("current") or {}
+    feats["temp_now"] = cur.get("temperature_2m")
+    feats["humidity_now"] = cur.get("relative_humidity_2m")
+    feats["apparent_now"] = cur.get("apparent_temperature")
+    feats["pressure_now"] = cur.get("surface_pressure")
+    feats["precip_prob_now"] = cur.get("precipitation_probability")
+    feats["gust_now"] = cur.get("wind_gusts_10m")
+
+    acur = air_json.get("current") or {}
+    feats["pm2_5_now"] = acur.get("pm2_5")
+    feats["aqi_now"] = acur.get("us_aqi")
+
+    pressure = _safe_get_hourly(weather_json, "surface_pressure")
+    temp = _safe_get_hourly(weather_json, "temperature_2m")
+    apparent = _safe_get_hourly(weather_json, "apparent_temperature")
+    precip_prob = _safe_get_hourly(weather_json, "precipitation_probability")
+    gust = _safe_get_hourly(weather_json, "wind_gusts_10m")
+
+    pm25 = _safe_get_hourly(air_json, "pm2_5")
+    aqi = _safe_get_hourly(air_json, "us_aqi")
+
+    def future_minus_now(arr: List[Optional[float]], h: int) -> Optional[float]:
+        if len(arr) <= h:
+            return None
+        now = arr[0]; fut = arr[h]
+        if isinstance(now, (int,float)) and isinstance(fut, (int,float)):
+            return float(fut) - float(now)
+        return None
+
+    feats["pressure_delta_3h"] = future_minus_now(pressure, 3)
+    feats["pressure_delta_6h"] = future_minus_now(pressure, 6)
+    feats["temp_delta_6h"] = future_minus_now(temp, 6)
+    feats["apparent_delta_6h"] = future_minus_now(apparent, 6)
+    feats["precip_prob_max_6h"] = _max_first_n(precip_prob, 6)
+    feats["gust_max_6h"] = _max_first_n(gust, 6)
+    feats["pm2_5_max_6h"] = _max_first_n(pm25, 6)
+    feats["aqi_max_6h"] = _max_first_n(aqi, 6)
+
+    return feats

@@ -1,0 +1,17 @@
+<IfModule mod_ssl.c>
+<VirtualHost *:443>
+    ServerName dev.pracunia.pl
+    Redirect permanent / https://dev.pracunia.pl/
+RewriteEngine on
+# Some rewrite rules in this file were disabled on your HTTPS site,
+# because they have the potential to create redirection loops.
+
+# RewriteCond %{SERVER_NAME} =dev.pracunia.pl
+# RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [END,NE,R=permanent]
+
+
+Include /etc/letsencrypt/options-ssl-apache.conf
+SSLCertificateFile /etc/letsencrypt/live/dev.pracunia.pl/fullchain.pem
+SSLCertificateKeyFile /etc/letsencrypt/live/dev.pracunia.pl/privkey.pem
+</VirtualHost>
+</IfModule>

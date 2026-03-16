@@ -1,0 +1,17 @@
+[Unit]
+Description=WeatherGuard - weather risk monitor (AI + WhatsApp)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=weatherguard
+Group=weatherguard
+WorkingDirectory=/opt/weatherguard
+EnvironmentFile=/opt/weatherguard/config/.env
+ExecStart=/opt/weatherguard/venv/bin/python -m app.runner --env /opt/weatherguard/config/.env
+StandardOutput=append:/opt/weatherguard/logs/weatherguard.log
+StandardError=append:/opt/weatherguard/logs/weatherguard.log
+
+[Install]
+WantedBy=multi-user.target

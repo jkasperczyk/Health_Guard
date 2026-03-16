@@ -1,0 +1,199 @@
+"""WeatherGuard Webhook (Twilio inbound) - robust minimal implementation.
+
+- Receives Twilio WhatsApp inbound (application/x-www-form-urlencoded)
+- Parses From / Body
+- Stores feedback into SQLite (separate from StateDB to avoid coupling)
+- Responds with TwiML message in Polish
+
+Reply formats supported:
+  TAK
+  NIE
+  TAK SYGNAŁY
+  TAK OBJAWY
+  NIE (cokolwiek)
+"""
+
+import argparse
+import html
+import os
+import sqlite3
+import sys
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+
+def load_env_file(path: str) -> None:
+    """Load KEY=VALUE pairs from .env into os.environ (does not override existing)."""
+    if not path or not os.path.exists(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip("'").strip('"')
+                if k and k not in os.environ:
+                    os.environ[k] = v
+    except Exception as e:
+        print(f"[WARN] Failed to load env file {path}: {e}", file=sys.stderr)
+
+
+def normalize_body(body: str) -> str:
+    b = (body or "").strip()
+    repl = str.maketrans({
+        "ą": "a", "ć": "c", "ę": "e", "ł": "l", "ń": "n", "ó": "o", "ś": "s", "ż": "z", "ź": "z",
+        "Ą": "A", "Ć": "C", "Ę": "E", "Ł": "L", "Ń": "N", "Ó": "O", "Ś": "S", "Ż": "Z", "Ź": "Z",
+    })
+    b = b.translate(repl)
+    return b.upper()
+
+
+def parse_feedback(body: str):
+    """Returns (answer, detail) where answer in {TAK, NIE, NIEZNANE} and detail in {'', SYGNALY, OBJAWY}."""
+    nb = normalize_body(body)
+    tokens = [t for t in nb.replace(",", " ").split() if t]
+    answer = "NIEZNANE"
+    detail = ""
+    if not tokens:
+        return answer, detail
+
+    for t in tokens:
+        if t in ("TAK", "NIE"):
+            answer = t
+            break
+
+    if answer == "TAK":
+        if any(t.startswith("SYGNAL") or t == "AURA" for t in tokens):
+            detail = "SYGNALY"
+        elif any(t.startswith("OBJAW") for t in tokens):
+            detail = "OBJAWY"
+
+    return answer, detail
+
+
+def init_db(db_path: str) -> None:
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    con = sqlite3.connect(db_path)
+    try:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                phone TEXT NOT NULL,
+                answer TEXT NOT NULL,
+                detail TEXT,
+                raw TEXT,
+                remote_addr TEXT,
+                user_agent TEXT
+            )
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+def insert_feedback(db_path: str, phone: str, answer: str, detail: str, raw: str, remote: str, ua: str) -> None:
+    con = sqlite3.connect(db_path)
+    try:
+        con.execute(
+            "INSERT INTO feedback (ts, phone, answer, detail, raw, remote_addr, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (int(time.time()), phone, answer, detail, raw, remote, ua),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+
+def twiml_message(msg: str) -> bytes:
+    safe = html.escape(msg, quote=False)
+    xml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>{safe}</Message></Response>'
+    return xml.encode("utf-8")
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "WeatherGuardWebhook/1.1"
+
+    def do_GET(self):
+        if self.path.rstrip("/") == "/health":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"ok\n")
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def do_POST(self):
+        try:
+            if not self.path.startswith("/twilio/inbound"):
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            raw_bytes = self.rfile.read(length) if length > 0 else b""
+            raw_str = raw_bytes.decode("utf-8", errors="replace")
+
+            data = parse_qs(raw_str)
+            phone = (data.get("From", ["unknown"])[0] or "unknown").strip()
+            body = (data.get("Body", [""])[0] or "").strip()
+
+            answer, detail = parse_feedback(body)
+
+            remote = getattr(self, "client_address", ("", ""))[0] or ""
+            ua = self.headers.get("User-Agent", "") or ""
+
+            insert_feedback(self.server.db_path, phone, answer, detail, body, remote, ua)
+
+            if answer == "NIEZNANE":
+                msg = "Dzięki! Nie rozumiem odpowiedzi. Odpisz proszę: TAK lub NIE (opcjonalnie: SYGNAŁY / OBJAWY)."
+            elif answer == "TAK" and detail == "SYGNALY":
+                msg = "Dzięki! Zapisane: TAK (sygnały)."
+            elif answer == "TAK" and detail == "OBJAWY":
+                msg = "Dzięki! Zapisane: TAK (objawy)."
+            elif answer == "TAK":
+                msg = "Dzięki! Zapisane: TAK."
+            else:
+                msg = "Dzięki! Zapisane: NIE."
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(twiml_message(msg))
+
+        except Exception as e:
+            print(f"[ERROR] inbound exception: {e}", file=sys.stderr)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(twiml_message("Wystąpił błąd po stronie serwera. Spróbuj ponownie później."))
+
+    def log_message(self, fmt, *args):
+        return
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--env", default="", help="Path to .env")
+    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--port", type=int, default=8020)
+    args = ap.parse_args()
+
+    load_env_file(args.env)
+    db_path = os.environ.get("FEEDBACK_DB", "/opt/weatherguard/data/feedback.db")
+
+    init_db(db_path)
+
+    httpd = HTTPServer((args.host, args.port), Handler)
+    httpd.db_path = db_path
+
+    print(f"[INFO] WeatherGuard webhook listening on {args.host}:{args.port} db={db_path}")
+    httpd.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

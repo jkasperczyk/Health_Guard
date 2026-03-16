@@ -1,0 +1,119 @@
+from __future__ import annotations
+from typing import Dict, Any, Tuple, List
+
+def clamp(v: float, lo: float = 0.0, hi: float = 100.0) -> float:
+    return max(lo, min(hi, v))
+
+def score_migraine(feats: Dict[str, Any]) -> Tuple[int, List[str]]:
+    """
+    Heurystyczny scoring 0..100 dla profilu migrena.
+    Nie jest modelem medycznym - to prosty wskaźnik "ryzyka dyskomfortu".
+    """
+    reasons: List[str] = []
+    score = 0.0
+
+    p_delta = feats.get("pressure_delta") or 0.0
+    p3 = feats.get("pressure_delta_3h")
+    rh = feats.get("rh_avg")
+    gust = feats.get("gust_max") or 0.0
+    precip_prob = feats.get("precip_prob_max") or 0.0
+    t_delta = feats.get("temp_delta") or 0.0
+
+    # Pressure change (big contributor)
+    abs_pd = abs(p_delta)
+    if abs_pd >= 8:
+        score += 40; reasons.append(f"Szybka zmiana ciśnienia (~{abs_pd:.0f} hPa / {feats.get('window_hours',12)}h)")
+    elif abs_pd >= 5:
+        score += 25; reasons.append(f"Zmiana ciśnienia (~{abs_pd:.0f} hPa / {feats.get('window_hours',12)}h)")
+    elif abs_pd >= 3:
+        score += 12; reasons.append(f"Niewielka zmiana ciśnienia (~{abs_pd:.0f} hPa)")
+
+    if p3 is not None:
+        if abs(p3) >= 4:
+            score += 18; reasons.append(f"Skok ciśnienia w 3h (~{abs(p3):.0f} hPa)")
+
+    # Humidity
+    if rh is not None:
+        if rh >= 85:
+            score += 10; reasons.append(f"Wysoka wilgotność (średnio ~{rh:.0f}%)")
+        elif rh >= 75:
+            score += 6; reasons.append(f"Podwyższona wilgotność (~{rh:.0f}%)")
+
+    # Wind gusts
+    if gust >= 45:
+        score += 10; reasons.append(f"Silne porywy wiatru (do ~{gust:.0f} km/h)")
+    elif gust >= 30:
+        score += 6; reasons.append(f"Porywisty wiatr (do ~{gust:.0f} km/h)")
+
+    # Precip/storm proxy
+    if precip_prob >= 70:
+        score += 8; reasons.append(f"Wysokie prawdopodobieństwo opadów (~{precip_prob:.0f}%)")
+    elif precip_prob >= 40:
+        score += 4; reasons.append(f"Możliwe opady (~{precip_prob:.0f}%)")
+
+    # Temp swing
+    if abs(t_delta) >= 8:
+        score += 8; reasons.append(f"Skok temperatury (~{abs(t_delta):.0f}°C / {feats.get('window_hours',12)}h)")
+    elif abs(t_delta) >= 5:
+        score += 5; reasons.append(f"Zmiana temperatury (~{abs(t_delta):.0f}°C)")
+
+    return int(clamp(score)), reasons
+
+def score_heart(feats: Dict[str, Any]) -> Tuple[int, List[str]]:
+    """
+    Heurystyczny scoring 0..100 dla profilu krążenie/serce.
+    Akcent na stres cieplny/zimno, wiatr i duże wahania.
+    """
+    reasons: List[str] = []
+    score = 0.0
+
+    tmax = feats.get("temp_max")
+    tmin = feats.get("temp_min")
+    tnow = feats.get("temp_now")
+    gust = feats.get("gust_max") or 0.0
+    wind = feats.get("wind_max") or 0.0
+    p_delta = abs(feats.get("pressure_delta") or 0.0)
+
+    # Heat / cold stress
+    if tmax is not None and tmax >= 30:
+        score += 35; reasons.append(f"Upał (max ~{tmax:.0f}°C)")
+    elif tmax is not None and tmax >= 26:
+        score += 22; reasons.append(f"Ciepło (max ~{tmax:.0f}°C)")
+
+    if tmin is not None and tmin <= -10:
+        score += 30; reasons.append(f"Silny mróz (min ~{tmin:.0f}°C)")
+    elif tmin is not None and tmin <= -3:
+        score += 18; reasons.append(f"Chłodno (min ~{tmin:.0f}°C)")
+
+    # Wind
+    if gust >= 55:
+        score += 15; reasons.append(f"Bardzo silne porywy (do ~{gust:.0f} km/h)")
+    elif gust >= 40:
+        score += 10; reasons.append(f"Silne porywy (do ~{gust:.0f} km/h)")
+    elif wind >= 30:
+        score += 6; reasons.append(f"Wiatr (do ~{wind:.0f} km/h)")
+
+    # Pressure swing
+    if p_delta >= 8:
+        score += 12; reasons.append(f"Duże wahanie ciśnienia (~{p_delta:.0f} hPa)")
+    elif p_delta >= 5:
+        score += 7; reasons.append(f"Wahanie ciśnienia (~{p_delta:.0f} hPa)")
+
+    return int(clamp(score)), reasons
+
+def combined_score(profile: str, feats: Dict[str, Any]) -> Tuple[int, List[str]]:
+    if profile == "migraine":
+        return score_migraine(feats)
+    if profile == "heart":
+        return score_heart(feats)
+    if profile == "both":
+        sm, rm = score_migraine(feats)
+        sh, rh = score_heart(feats)
+        score = int(clamp((sm*0.55 + sh*0.55)))  # slightly conservative
+        # merge unique reasons
+        reasons = []
+        for r in rm + rh:
+            if r not in reasons:
+                reasons.append(r)
+        return score, reasons
+    raise ValueError(f"Unknown profile: {profile}")

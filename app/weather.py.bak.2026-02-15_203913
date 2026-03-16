@@ -1,0 +1,134 @@
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import Dict, Any, Optional, Tuple, List
+import requests
+import math
+from datetime import datetime, timezone
+
+OPEN_METEO_GEOCODE = "https://geocoding-api.open-meteo.com/v1/search"
+OPEN_METEO_FORECAST = "https://api.open-meteo.com/v1/forecast"
+
+@dataclass
+class Location:
+    name: str
+    latitude: float
+    longitude: float
+
+def _is_latlon(s: str) -> bool:
+    return bool(s and "," in s and all(p.strip().replace(".","",1).replace("-","",1).isdigit() for p in s.split(",",1)))
+
+def resolve_location(location: str, timeout: int = 20) -> Location:
+    location = location.strip()
+    if _is_latlon(location):
+        lat_s, lon_s = [p.strip() for p in location.split(",", 1)]
+        return Location(name=location, latitude=float(lat_s), longitude=float(lon_s))
+
+    # Support "City,CC" (e.g., Katowice,PL)
+    name = location
+    country_code = None
+    if "," in location:
+        a, b = [p.strip() for p in location.split(",", 1)]
+        if b and len(b) == 2 and b.isalpha():
+            name = a
+            country_code = b.upper()
+
+    params = {"name": name, "count": 1, "language": "pl", "format": "json"}
+    if country_code:
+        params["country_code"] = country_code
+
+    r = requests.get(OPEN_METEO_GEOCODE, params=params, timeout=timeout)
+    r.raise_for_status()
+    data = r.json()
+    results = data.get("results") or []
+    if not results:
+        raise ValueError(f"Could not geocode location: {location}")
+    top = results[0]
+    resolved = f"{top.get('name')},{top.get('country_code')}"
+    return Location(name=resolved, latitude=float(top["latitude"]), longitude=float(top["longitude"]))
+
+def fetch_forecast(lat: float, lon: float, hours: int = 24, timeout: int = 20) -> Dict[str, Any]:
+    # We fetch hourly data for the next `hours` hours from current time.
+    # Use surface_pressure (hPa) - available as "surface_pressure".
+    hourly = ",".join([
+        "temperature_2m",
+        "relativehumidity_2m",
+        "surface_pressure",
+        "wind_speed_10m",
+        "wind_gusts_10m",
+        "precipitation",
+        "precipitation_probability",
+        "weather_code",
+    ])
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "hourly": hourly,
+        "forecast_days": 2,
+        "timezone": "UTC",
+        "temperature_unit": "celsius",
+        "windspeed_unit": "kmh",
+        "precipitation_unit": "mm",
+        "timeformat": "iso8601",
+    }
+    r = requests.get(OPEN_METEO_FORECAST, params=params, timeout=timeout)
+    r.raise_for_status()
+    return r.json()
+
+def slice_next_hours(hourly: Dict[str, Any], n_hours: int) -> Dict[str, List[float]]:
+    times = hourly["time"]
+    # Data arrays have same length
+    now = datetime.now(timezone.utc)
+    # find first index >= now
+    idx0 = 0
+    for i, t in enumerate(times):
+        # times are ISO strings in UTC
+        dt = datetime.fromisoformat(t.replace("Z","+00:00"))
+        if dt >= now:
+            idx0 = i
+            break
+    out: Dict[str, List[float]] = {}
+    for k, arr in hourly.items():
+        if k == "time":
+            continue
+        out[k] = arr[idx0: idx0 + n_hours]
+    return out
+
+def compute_features(f: Dict[str, Any], n_hours: int = 12) -> Dict[str, Any]:
+    hourly = f.get("hourly") or {}
+    sliced = slice_next_hours(hourly, n_hours)
+    def _safe(arr: List[float]) -> List[float]:
+        return [float(x) for x in arr if x is not None]
+
+    temp = _safe(sliced.get("temperature_2m", []))
+    rh = _safe(sliced.get("relativehumidity_2m", []))
+    pres = _safe(sliced.get("surface_pressure", []))
+    gust = _safe(sliced.get("wind_gusts_10m", []))
+    wind = _safe(sliced.get("wind_speed_10m", []))
+    precip = _safe(sliced.get("precipitation", []))
+    pprob = _safe(sliced.get("precipitation_probability", []))
+
+    def delta(arr: List[float]) -> float:
+        return (arr[-1] - arr[0]) if len(arr) >= 2 else 0.0
+
+    feats = {
+        "window_hours": n_hours,
+        "temp_now": temp[0] if temp else None,
+        "temp_delta": delta(temp),
+        "temp_max": max(temp) if temp else None,
+        "temp_min": min(temp) if temp else None,
+        "rh_avg": (sum(rh)/len(rh)) if rh else None,
+        "pressure_now": pres[0] if pres else None,
+        "pressure_delta": delta(pres),
+        "pressure_max": max(pres) if pres else None,
+        "pressure_min": min(pres) if pres else None,
+        "wind_max": max(wind) if wind else None,
+        "gust_max": max(gust) if gust else None,
+        "precip_sum": sum(precip) if precip else 0.0,
+        "precip_prob_max": max(pprob) if pprob else None,
+    }
+    # Pressure change speed approximate (hPa per 3h)
+    if pres and len(pres) >= 4:
+        feats["pressure_delta_3h"] = pres[3] - pres[0]
+    else:
+        feats["pressure_delta_3h"] = None
+    return feats

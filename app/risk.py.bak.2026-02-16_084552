@@ -1,0 +1,163 @@
+from __future__ import annotations
+from typing import Dict, Any, List, Tuple, Optional
+
+def _clamp(x: float, lo: float = 0.0, hi: float = 100.0) -> int:
+    if x < lo:
+        return int(lo)
+    if x > hi:
+        return int(hi)
+    return int(round(x))
+
+def _num(feats: Dict[str, Any], key: str) -> Optional[float]:
+    v = feats.get(key)
+    return float(v) if isinstance(v, (int, float)) else None
+
+def _label(score: int) -> str:
+    if score >= 80:
+        return "high"
+    if score >= 65:
+        return "elevated"
+    if score >= 45:
+        return "moderate"
+    return "low"
+
+def migraine_risk(feats: Dict[str, Any]) -> Tuple[int, str, List[str]]:
+    """
+    Heurystyczny scoring 0-100. Nowe czynniki:
+    - UV / światło (uv_max_6h, sw_rad_max_6h, cloud_min_6h)
+    - Burze (thunder_next_6h, cape_max_6h)
+    - Pyłki (pollen_max_6h)
+    """
+    score = 0.0
+    reasons: List[str] = []
+
+    # --- Pressure swings
+    dp3 = _num(feats, "pressure_delta_3h")
+    dp6 = _num(feats, "pressure_delta_6h")
+    if dp3 is not None and abs(dp3) >= 2.5:
+        score += 18
+        reasons.append(f"Wyraźna zmiana ciśnienia w 3h ({dp3:+.1f} hPa)")
+    elif dp6 is not None and abs(dp6) >= 4.0:
+        score += 16
+        reasons.append(f"Zmiana ciśnienia w 6h ({dp6:+.1f} hPa)")
+
+    # --- Temp / feels-like swings
+    dt6 = _num(feats, "temp_delta_6h")
+    adt6 = _num(feats, "apparent_delta_6h")
+    if (dt6 is not None and abs(dt6) >= 5) or (adt6 is not None and abs(adt6) >= 6):
+        score += 12
+        reasons.append("Szybka zmiana temperatury/odczuwalnej w kilka godzin")
+
+    # --- Humidity high
+    hum = _num(feats, "humidity_now")
+    if hum is not None and hum >= 85:
+        score += 8
+        reasons.append(f"Wysoka wilgotność ({hum:.0f}%)")
+
+    # --- Wind gusts
+    g6 = _num(feats, "gust_max_6h")
+    if g6 is not None and g6 >= 45:
+        score += 8
+        reasons.append("Silniejsze porywy wiatru")
+
+    # --- Precip probability
+    pmax = _num(feats, "precip_prob_max_6h")
+    if pmax is not None and pmax >= 70:
+        score += 6
+        reasons.append("Duża szansa opadów w najbliższych godzinach")
+
+    # --- Air pollution
+    pm = _num(feats, "pm2_5_max_6h")
+    aqi = _num(feats, "aqi_us_max_6h")
+    if pm is not None and pm >= 35:
+        score += 10
+        reasons.append("Podwyższone PM2.5")
+    if aqi is not None and aqi >= 120:
+        score += 8
+        reasons.append("Słabsza jakość powietrza (AQI)")
+
+    # --- NEW: UV / bright light
+    uv6 = _num(feats, "uv_max_6h")
+    sw6 = _num(feats, "sw_rad_max_6h")
+    cloudmin = _num(feats, "cloud_min_6h")
+    if uv6 is not None and uv6 >= 8:
+        score += 14
+        reasons.append("Wysoki UV w najbliższych godzinach")
+    elif uv6 is not None and uv6 >= 6:
+        score += 8
+        reasons.append("Podwyższony UV w najbliższych godzinach")
+
+    # dodatkowy “brightness proxy”
+    if sw6 is not None and sw6 >= 450 and (cloudmin is None or cloudmin <= 25):
+        score += 6
+        reasons.append("Duże nasłonecznienie (jasne warunki)")
+
+    # --- NEW: Storms
+    thunder = feats.get("thunder_next_6h") is True
+    cape6 = _num(feats, "cape_max_6h")
+    if thunder:
+        score += 14
+        reasons.append("Możliwe burze / wyładowania w najbliższych godzinach")
+    elif cape6 is not None and cape6 >= 1000:
+        score += 7
+        reasons.append("Wysoka chwiejność (CAPE) – możliwe zjawiska konwekcyjne")
+
+    # --- NEW: Pollen (Europe-only; may be None)
+    pol = _num(feats, "pollen_max_6h")
+    # jednostka: grains/m³ (CAMS), brak “uniwersalnych” progów → startowo progi umowne
+    if pol is not None and pol >= 150:
+        score += 10
+        reasons.append("Wysokie stężenie pyłków")
+    elif pol is not None and pol >= 60:
+        score += 6
+        reasons.append("Podwyższone stężenie pyłków")
+
+    return _clamp(score), _label(_clamp(score)), reasons[:6]
+
+def heart_risk(feats: Dict[str, Any]) -> Tuple[int, str, List[str]]:
+    score = 0.0
+    reasons: List[str] = []
+
+    app = _num(feats, "apparent_now")
+    hum = _num(feats, "humidity_now")
+    if app is not None and app >= 30:
+        score += 18
+        reasons.append("Wysoka temperatura odczuwalna")
+    if hum is not None and hum >= 85:
+        score += 8
+        reasons.append("Wysoka wilgotność")
+
+    aqi = _num(feats, "aqi_us_max_6h")
+    pm = _num(feats, "pm2_5_max_6h")
+    if aqi is not None and aqi >= 120:
+        score += 12
+        reasons.append("Słabsza jakość powietrza (AQI)")
+    if pm is not None and pm >= 35:
+        score += 10
+        reasons.append("Podwyższone PM2.5")
+
+    dp6 = _num(feats, "pressure_delta_6h")
+    if dp6 is not None and abs(dp6) >= 5.0:
+        score += 10
+        reasons.append("Wyraźna zmiana ciśnienia w 6h")
+
+    # NEW: storms (mniejsza waga niż dla migren)
+    thunder = feats.get("thunder_next_6h") is True
+    if thunder:
+        score += 6
+        reasons.append("Możliwe burze – warunki mogą być bardziej obciążające")
+
+    # NEW: pollen (niewielka waga)
+    pol = _num(feats, "pollen_max_6h")
+    if pol is not None and pol >= 150:
+        score += 4
+        reasons.append("Wysokie pyłki (mogą pogarszać komfort oddechowy)")
+
+    return _clamp(score), _label(_clamp(score)), reasons[:6]
+
+def combined_risk(feats: Dict[str, Any]) -> Tuple[int, str, List[str]]:
+    ms, ml, mr = migraine_risk(feats)
+    hs, hl, hr = heart_risk(feats)
+    score = _clamp(max(ms, hs) * 0.7 + (ms + hs) * 0.15)
+    reasons = (mr + hr)[:6]
+    return score, _label(score), reasons

@@ -1,0 +1,8 @@
+# phone | profile | location | threshold | quiet_hours
+# profile: migraine / heart / both
+# location: "lat,lon" or "City,CC" (geocoding)
+whatsapp:+48505019600 | migraine | Zawiercie,PL | 10 | 22-7
+whatsapp:+48505019600 | allergy | Zawiercie,PL | 55 | 22-7
+whatsapp:+48505019600 | heart | Zawiercie,PL | 55 | 22-7
+whatsapp:+48791612655 | migraine | Sosnowiec,PL | 50 | 22-7
+

@@ -1,0 +1,1 @@
+alert_id,alert_ts,alert_time_utc,alert_time_local,phone,profile,location,score,threshold,label,sid,reasons_json,feedback_answer,feedback_detail,feedback_ts,feedback_time_utc,feedback_time_local,feedback_raw

@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import csv
+import os
+import sys
+import time
+from datetime import datetime, timezone
+
+APP_ROOT = os.environ.get("WEATHERGUARD_ROOT", "/opt/weatherguard")
+if APP_ROOT not in sys.path:
+    sys.path.insert(0, APP_ROOT)
+
+from app.feedback_store import ensure_schema, _conn  # type: ignore
+
+REPORT_DIR = f"{APP_ROOT}/reports"
+
+
+def _ensure_dir():
+    os.makedirs(REPORT_DIR, exist_ok=True)
+
+
+def _dt(ts: int) -> str:
+    return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def report_daily(_args):
+    ensure_schema()
+    _ensure_dir()
+    now = int(time.time())
+    since = now - 24 * 3600
+    out_path = os.path.join(REPORT_DIR, f"daily_{datetime.utcnow().strftime('%Y-%m-%d')}.csv")
+
+    c = _conn()
+    try:
+        rows = c.execute(
+            """
+            SELECT
+              id, ts, phone, profile, location, score, threshold, label, sid,
+              feedback_answer, feedback_detail, feedback_ts
+            FROM alerts
+            WHERE ts>=?
+            ORDER BY ts ASC
+            """,
+            (since,),
+        ).fetchall()
+    finally:
+        c.close()
+
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(
+            [
+                "alert_id",
+                "ts_utc",
+                "phone",
+                "profile",
+                "location",
+                "score",
+                "threshold",
+                "label",
+                "sid",
+                "feedback_answer",
+                "feedback_detail",
+                "feedback_ts_utc",
+            ]
+        )
+        for (id_, ts, phone, profile, loc, score, th, label, sid, fa, fd, fts) in rows:
+            w.writerow([id_, _dt(ts), phone, profile, loc or "", score, th, label or "", sid or "", fa or "", fd or "", _dt(fts) if fts else ""])
+    print(out_path)
+
+
+def report_monthly(args):
+    ensure_schema()
+    _ensure_dir()
+    month = args.month
+    try:
+        y_s, m_s = month.split("-")
+        y = int(y_s)
+        m = int(m_s)
+    except Exception:
+        raise SystemExit("ERROR: --month must be YYYY-MM")
+
+    start = int(datetime(y, m, 1, tzinfo=timezone.utc).timestamp())
+    if m == 12:
+        end = int(datetime(y + 1, 1, 1, tzinfo=timezone.utc).timestamp())
+    else:
+        end = int(datetime(y, m + 1, 1, tzinfo=timezone.utc).timestamp())
+
+    out_path = os.path.join(REPORT_DIR, f"monthly_{month}.csv")
+
+    c = _conn()
+    try:
+        rows = c.execute(
+            """
+            SELECT
+              id, ts, phone, profile, location, score, threshold, label, sid,
+              feedback_answer, feedback_detail, feedback_ts
+            FROM alerts
+            WHERE ts>=? AND ts<?
+            ORDER BY ts ASC
+            """,
+            (start, end),
+        ).fetchall()
+    finally:
+        c.close()
+
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(
+            [
+                "alert_id",
+                "ts_utc",
+                "phone",
+                "profile",
+                "location",
+                "score",
+                "threshold",
+                "label",
+                "sid",
+                "feedback_answer",
+                "feedback_detail",
+                "feedback_ts_utc",
+            ]
+        )
+        for (id_, ts, phone, profile, loc, score, th, label, sid, fa, fd, fts) in rows:
+            w.writerow([id_, _dt(ts), phone, profile, loc or "", score, th, label or "", sid or "", fa or "", fd or "", _dt(fts) if fts else ""])
+    print(out_path)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="wg-report", description="WeatherGuard reports to CSV (Excel-friendly).")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("daily", help="Write daily report (last 24h alerts + feedback)")
+    p.set_defaults(func=report_daily)
+
+    p = sub.add_parser("monthly", help="Write monthly report from DB (YYYY-MM)")
+    p.add_argument("--month", required=True)
+    p.set_defaults(func=report_monthly)
+
+    args = ap.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

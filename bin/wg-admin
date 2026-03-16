@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+import sys
+from datetime import datetime
+
+APP_ROOT = os.environ.get("WEATHERGUARD_ROOT", "/opt/weatherguard")
+if APP_ROOT not in sys.path:
+    sys.path.insert(0, APP_ROOT)
+
+from app.feedback_store import query_alerts, query_feedback, query_trend, ensure_schema
+
+
+def _dt(ts: int) -> str:
+    return datetime.utcfromtimestamp(int(ts)).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def cmd_health(_args):
+    print("== health (quick) ==")
+    venv_py = f"{APP_ROOT}/venv/bin/python"
+    print(f"venv_python         : {'yes' if os.path.exists(venv_py) else 'no'}")
+    for f in ["runner.py", "webhook.py", "feedback_store.py"]:
+        p = f"{APP_ROOT}/app/{f}"
+        print(f"{f:<18}: {'yes' if os.path.exists(p) else 'no'}")
+
+    def port_open(port: int) -> str:
+        try:
+            import socket
+            s = socket.socket()
+            s.settimeout(0.5)
+            s.connect(("127.0.0.1", port))
+            s.close()
+            return "open"
+        except Exception as e:
+            return f"closed ({type(e).__name__})"
+
+    print(f"port_8020_127.0.0.1 : {port_open(8020)}")
+    print(f"port_8001_127.0.0.1 : {port_open(8001)}")
+
+    print("\n== systemd services (match 'weatherguard') ==")
+    try:
+        out = subprocess.check_output(["systemctl", "list-units", "--type=service", "--all"], text=True)
+        for ln in out.splitlines():
+            if "weatherguard" in ln:
+                print(" ", ln)
+    except Exception as e:
+        print("  (systemctl list failed)", e)
+
+    print("\n== systemd timers (match 'weatherguard') ==")
+    try:
+        out = subprocess.check_output(["systemctl", "list-timers", "--all"], text=True)
+        for ln in out.splitlines():
+            if "weatherguard" in ln:
+                print(" ", ln)
+    except Exception as e:
+        print("  (systemctl list-timers failed)", e)
+
+    print("\n== db schema check ==")
+    ensure_schema()
+    print("- alerts: OK")
+    print("- feedback: OK")
+    print("- readings: OK")
+    print("\nOK: health check finished")
+
+
+def cmd_alerts(args):
+    rows = query_alerts(hours=args.hours, phone=args.phone, profile=args.profile)
+    if not rows:
+        print("(no alerts)")
+        return
+    print("id,ts,phone,profile,location,score,threshold,label,sid,feedback_answer,feedback_detail,feedback_ts")
+    for r in rows[: args.limit]:
+        (id_, ts, phone, profile, loc, score, th, label, sid, fa, fd, fts) = r
+        loc_s = (loc or "").replace(",", " ")
+        label_s = (label or "").replace(",", " ")
+        fd_s = (fd or "").replace("\n", " ").replace(",", " ")
+        print(f"{id_},{_dt(ts)},{phone},{profile},{loc_s},{score},{th},{label_s},{sid or ''},{fa or ''},{fd_s},{_dt(fts) if fts else ''}")
+
+
+def cmd_feedback(args):
+    rows = query_feedback(hours=args.hours, phone=args.phone)
+    if not rows:
+        print("(no feedback)")
+        return
+    print("id,ts,phone,answer,detail,alert_id,raw")
+    for r in rows[: args.limit]:
+        (id_, ts, phone, ans, detail, raw, alert_id) = r
+        raw_s = (raw or "").replace("\n", " ").replace(",", ";")
+        det_s = (detail or "").replace("\n", " ").replace(",", " ")
+        print(f"{id_},{_dt(ts)},{phone},{ans},{det_s},{alert_id or ''},{raw_s}")
+
+
+def cmd_trend(args):
+    rows = query_trend(phone=args.phone, profile=args.profile, days=args.days)
+    if not rows:
+        print("(no readings)")
+        return
+    print("ts,score,threshold,label,location")
+    for (ts, score, th, label, loc) in rows:
+        label_s = (label or "").replace(",", " ")
+        loc_s = (loc or "").replace(",", " ")
+        print(f"{_dt(ts)},{score},{th},{label_s},{loc_s}")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="wg-admin", description="WeatherGuard admin console (console-only).")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("health", help="Quick health check (services/timers/ports/schema)")
+    p.set_defaults(func=cmd_health)
+
+    p = sub.add_parser("alerts", help="List alerts from DB")
+    p.add_argument("--hours", type=int, default=24)
+    p.add_argument("--phone", default=None)
+    p.add_argument("--profile", default=None)
+    p.add_argument("--limit", type=int, default=50)
+    p.set_defaults(func=cmd_alerts)
+
+    p = sub.add_parser("feedback", help="List feedback from DB")
+    p.add_argument("--hours", type=int, default=24)
+    p.add_argument("--phone", default=None)
+    p.add_argument("--limit", type=int, default=50)
+    p.set_defaults(func=cmd_feedback)
+
+    p = sub.add_parser("trend", help="Show readings trend for a phone+profile")
+    p.add_argument("--phone", required=True)
+    p.add_argument("--profile", required=True, choices=["migraine", "allergy", "heart", "both"])
+    p.add_argument("--days", type=int, default=7)
+    p.set_defaults(func=cmd_trend)
+
+    args = ap.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

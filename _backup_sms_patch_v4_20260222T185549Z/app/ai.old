@@ -1,0 +1,39 @@
+from __future__ import annotations
+from typing import List, Dict, Any
+from openai import OpenAI
+
+SYSTEM_PROMPT = """Jesteś asystentem, który pisze krótkie, konkretne powiadomienia o pogodzie dla osoby wrażliwej
+na zmiany (migrena lub krążenie). Nie stawiasz diagnoz. Nie dajesz porad medycznych. Maksymalnie 2-3 zdania.
+Na końcu dodaj krótką, neutralną sugestię komfortową (np. nawodnienie, przerwa, unikanie przegrzania/wychłodzenia),
+bez leków. Dodaj krótką adnotację: "To nie jest porada medyczna.""""
+
+def build_user_prompt(profile: str, location_name: str, score: int, reasons: List[str], feats: Dict[str, Any]) -> str:
+    reasons_txt = "; ".join(reasons[:6]) if reasons else "brak mocnych sygnałów"
+    window = feats.get("window_hours", 12)
+    return (
+        f"Lokalizacja: {location_name}\n"
+        f"Profil: {profile}\n"
+        f"Wskaźnik ryzyka: {score}/100\n"
+        f"Okno analizy: następne {window} godzin\n"
+        f"Czynniki: {reasons_txt}\n"
+        f"Napisz wiadomość na WhatsApp (zwięźle, po polsku)."
+    )
+
+def generate_message(api_key: str, model: str, temperature: float, max_tokens: int,
+                     profile: str, location_name: str, score: int, reasons: List[str], feats: Dict[str, Any]) -> str:
+    client = OpenAI(api_key=api_key)
+    user_prompt = build_user_prompt(profile, location_name, score, reasons, feats)
+    resp = client.chat.completions.create(
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+    )
+    content = (resp.choices[0].message.content or "").strip()
+    # Safety: ensure not too long
+    if len(content) > 900:
+        content = content[:900].rstrip() + "…"
+    return content

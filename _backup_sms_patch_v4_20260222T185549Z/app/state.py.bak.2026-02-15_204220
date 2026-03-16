@@ -1,0 +1,47 @@
+from __future__ import annotations
+import os
+import sqlite3
+from datetime import datetime, timezone, timedelta
+from typing import Optional
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_phone TEXT NOT NULL,
+  profile TEXT NOT NULL,
+  sent_at_utc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_profile ON notifications(user_phone, profile, sent_at_utc);
+"""
+
+def init_db(db_path: str) -> None:
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    with sqlite3.connect(db_path) as con:
+        con.execute("PRAGMA journal_mode=WAL;")
+        con.executescript(SCHEMA)
+        con.commit()
+
+def last_sent(db_path: str, user_phone: str, profile: str) -> Optional[datetime]:
+    with sqlite3.connect(db_path) as con:
+        row = con.execute(
+            "SELECT sent_at_utc FROM notifications WHERE user_phone=? AND profile=? ORDER BY id DESC LIMIT 1",
+            (user_phone, profile)
+        ).fetchone()
+    if not row:
+        return None
+    return datetime.fromisoformat(row[0]).replace(tzinfo=timezone.utc)
+
+def record_sent(db_path: str, user_phone: str, profile: str) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(db_path) as con:
+        con.execute(
+            "INSERT INTO notifications(user_phone, profile, sent_at_utc) VALUES(?,?,?)",
+            (user_phone, profile, now)
+        )
+        con.commit()
+
+def is_in_cooldown(db_path: str, user_phone: str, profile: str, cooldown_minutes: int) -> bool:
+    ls = last_sent(db_path, user_phone, profile)
+    if not ls:
+        return False
+    return datetime.now(timezone.utc) - ls < timedelta(minutes=cooldown_minutes)

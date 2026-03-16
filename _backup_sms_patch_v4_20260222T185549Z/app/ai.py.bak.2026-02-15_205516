@@ -1,0 +1,52 @@
+from __future__ import annotations
+from typing import Dict, Any, List, Optional
+import json
+from openai import OpenAI
+
+SYSTEM = (
+    "Jesteś asystentem aplikacji pogodowej dla osób wrażliwych na zmiany pogody. "
+    "Tworzysz krótkie, konkretne powiadomienia po polsku. "
+    "NIE diagnozujesz i nie udzielasz porad medycznych. "
+    "Możesz dać neutralne sugestie komfortowe (woda, przerwy, unikanie przegrzania), "
+    "z krótką wzmianką, że to nie jest porada medyczna."
+)
+
+def build_prompt(profile: str, location_name: str, risk_score: int, risk_label: str, reasons: List[str], feats: Dict[str, Any]) -> List[Dict[str,str]]:
+    profile_pl = {"migraine":"migrena", "heart":"krążenie", "both":"migrena + krążenie"}[profile]
+    reasons_txt = "\n".join([f"- {r}" for r in reasons]) if reasons else "- (brak dominujących czynników)"
+    key_feats = {k: feats.get(k) for k in [
+        "pressure_now","pressure_delta_3h","pressure_delta_6h",
+        "temp_now","temp_delta_6h","apparent_now","humidity_now",
+        "precip_prob_max_6h","gust_max_6h","pm2_5_now","pm2_5_max_6h","aqi_now","aqi_max_6h"
+    ] if k in feats}
+
+    user = (
+        f"Użytkownik: profil={profile_pl}. Lokalizacja: {location_name}.\n"
+        f"Wynik ryzyka: {risk_score}/100 ({risk_label}).\n"
+        f"Powody (heurystyka):\n{reasons_txt}\n\n"
+        f"Surowe wskaźniki (dla Ciebie): {json.dumps(key_feats, ensure_ascii=False)}\n\n"
+        "Wygeneruj jedną wiadomość WhatsApp (max ~450 znaków):\n"
+        "- 1 linia: emoji + krótki nagłówek\n"
+        "- 2–3 linie: 'dlaczego' w prostych słowach (bez żargonu)\n"
+        "- 1 linia: neutralna sugestia komfortowa\n"
+        "- 1 krótka linia: 'To nie jest porada medyczna.'\n"
+        "Bez linków."
+    )
+    return [{"role":"system","content":SYSTEM},{"role":"user","content":user}]
+
+def generate_message(openai_api_key: Optional[str], model: str, profile: str, location_name: str, risk_score: int, risk_label: str, reasons: List[str], feats: Dict[str, Any]) -> str:
+    if not openai_api_key:
+        base = f"⚠️ WeatherGuard: ryzyko {risk_score}/100 ({risk_label}) — {location_name}\n"
+        why = "\n".join([f"- {r}" for r in reasons]) if reasons else "- Zmienne warunki pogodowe"
+        return base + why + "\n\nTip: pij wodę, rób przerwy.\nTo nie jest porada medyczna."
+
+    client = OpenAI(api_key=openai_api_key)
+    messages = build_prompt(profile, location_name, risk_score, risk_label, reasons, feats)
+    resp = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=0.4,
+        max_tokens=220,
+    )
+    txt = resp.choices[0].message.content or ""
+    return txt.strip()

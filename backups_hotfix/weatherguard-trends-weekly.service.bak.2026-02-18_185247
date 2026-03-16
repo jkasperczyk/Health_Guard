@@ -1,0 +1,25 @@
+[Unit]
+Description=WeatherGuard - weekly trend charts to WhatsApp
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=weatherguard
+Group=weatherguard
+WorkingDirectory=/opt/weatherguard
+Environment=WEATHERGUARD_ENV=/opt/weatherguard/config/.env
+# IMPORTANT: change to your public domain if not dev.pracunia.pl
+Environment=WEATHERGUARD_PUBLIC_BASE=https://dev.pracunia.pl
+Environment=WEATHERGUARD_TZ=Europe/Warsaw
+ExecStart=/opt/weatherguard/venv/bin/python -m app.trends_weekly
+
+# hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/weatherguard/public_media /opt/weatherguard/data
+
+[Install]
+WantedBy=multi-user.target

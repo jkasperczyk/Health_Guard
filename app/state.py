@@ -1,0 +1,137 @@
+import sqlite3
+
+import json
+import os
+import time
+from typing import Dict, Any, Optional, Tuple
+
+class StateDB:
+    """
+    Minimalny storage stanu:
+    - last_sent_ts per (phone, profile)
+    - last_score per (phone, profile)
+    zapis do pliku JSON.
+    """
+    def __init__(self, path: str):
+        self.path = path
+        self._data: Dict[str, Any] = {"last_sent": {}, "last_score": {}}
+        self._load()
+
+    def _load(self) -> None:
+        if not os.path.exists(self.path):
+            # ensure dir exists
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            return
+        try:
+            with open(self.path, "r", encoding="utf-8") as f:
+                self._data = json.load(f)
+            if "last_sent" not in self._data:
+                self._data["last_sent"] = {}
+            if "last_score" not in self._data:
+                self._data["last_score"] = {}
+        except Exception:
+            # jeśli plik uszkodzony, zaczynamy od zera (bez wywalania aplikacji)
+            self._data = {"last_sent": {}, "last_score": {}}
+
+    def _key(self, phone: str, profile: str) -> str:
+        return f"{phone}::{profile}"
+
+    def last_sent(self, phone: str, profile: str) -> Optional[int]:
+        k = self._key(phone, profile)
+        v = (self._data.get("last_sent") or {}).get(k)
+        if isinstance(v, int):
+            return v
+        if isinstance(v, float):
+            return int(v)
+        return None
+
+    def mark_sent(self, phone: str, profile: str, score: int) -> None:
+        k = self._key(phone, profile)
+        self._data.setdefault("last_sent", {})[k] = int(time.time())
+        self._data.setdefault("last_score", {})[k] = int(score)
+        self._save()
+
+    def _save(self) -> None:
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        tmp = self.path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self._data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, self.path)
+
+    def close(self) -> None:
+        # nic specjalnego, ale zostawiamy API
+        pass
+
+
+    # --- Patch v4: feedback tables for migraine alerts ---
+    def ensure_feedback_tables(self) -> None:
+        """Create feedback tables if they don't exist. Safe to call multiple times."""
+        with sqlite3.connect(self.path) as con:
+            cur = con.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS last_alert (
+                    phone TEXT NOT NULL,
+                    profile TEXT NOT NULL,
+                    ts INTEGER NOT NULL,
+                    score INTEGER,
+                    sid TEXT,
+                    PRIMARY KEY (phone, profile)
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS feedback (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts INTEGER NOT NULL,
+                    phone TEXT NOT NULL,
+                    profile TEXT NOT NULL,
+                    answer TEXT NOT NULL,
+                    detail TEXT,
+                    alert_ts INTEGER,
+                    alert_score INTEGER,
+                    alert_sid TEXT
+                );
+            """)
+            con.commit()
+
+    def set_last_alert(self, phone: str, profile: str, ts: int, score: int | None = None, sid: str | None = None) -> None:
+        self.ensure_feedback_tables()
+        with sqlite3.connect(self.path) as con:
+            cur = con.cursor()
+            cur.execute(
+                "INSERT OR REPLACE INTO last_alert(phone, profile, ts, score, sid) VALUES(?,?,?,?,?)",
+                (phone, profile, int(ts), score, sid),
+            )
+            con.commit()
+
+    def get_last_alert(self, phone: str, profile: str) -> dict | None:
+        self.ensure_feedback_tables()
+        with sqlite3.connect(self.path) as con:
+            cur = con.cursor()
+            cur.execute(
+                "SELECT ts, score, sid FROM last_alert WHERE phone=? AND profile=?",
+                (phone, profile),
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        return {"ts": row[0], "score": row[1], "sid": row[2]}
+
+    def insert_feedback(
+        self,
+        phone: str,
+        profile: str,
+        answer: str,
+        detail: str | None = None,
+        alert_ts: int | None = None,
+        alert_score: int | None = None,
+        alert_sid: str | None = None,
+    ) -> None:
+        self.ensure_feedback_tables()
+        now = int(__import__('time').time())
+        with sqlite3.connect(self.path) as con:
+            cur = con.cursor()
+            cur.execute(
+                "INSERT INTO feedback(ts, phone, profile, answer, detail, alert_ts, alert_score, alert_sid) VALUES(?,?,?,?,?,?,?,?)",
+                (now, phone, profile, answer, detail, alert_ts, alert_score, alert_sid),
+            )
+            con.commit()

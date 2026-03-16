@@ -1,0 +1,41 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from dotenv import load_dotenv
+
+@dataclass
+class Settings:
+    openai_api_key: str
+    openai_model: str = "gpt-4o-mini"
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_whatsapp_from: str = ""
+    app_timezone: str = "Europe/Warsaw"
+    check_every_hours: int = 1
+    default_threshold: int = 65
+    cooldown_minutes: int = 360
+    max_tokens: int = 160
+    temperature: float = 0.4
+    open_meteo_forecast_hours: int = 24
+
+def load_settings(env_path: str) -> Settings:
+    load_dotenv(env_path)
+    def _get(name: str, default: str = "") -> str:
+        return os.getenv(name, default).strip()
+
+    s = Settings(
+        openai_api_key=_get("OPENAI_API_KEY"),
+        openai_model=_get("OPENAI_MODEL", "gpt-4o-mini"),
+        twilio_account_sid=_get("TWILIO_ACCOUNT_SID"),
+        twilio_auth_token=_get("TWILIO_AUTH_TOKEN"),
+        twilio_whatsapp_from=_get("TWILIO_WHATSAPP_FROM"),
+        app_timezone=_get("APP_TIMEZONE", "Europe/Warsaw"),
+        check_every_hours=int(_get("CHECK_EVERY_HOURS", "1") or "1"),
+        default_threshold=int(_get("DEFAULT_THRESHOLD", "65") or "65"),
+        cooldown_minutes=int(_get("COOLDOWN_MINUTES", "360") or "360"),
+        max_tokens=int(_get("MAX_TOKENS", "160") or "160"),
+        temperature=float(_get("TEMPERATURE", "0.4") or "0.4"),
+        open_meteo_forecast_hours=int(_get("OPEN_METEO_FORECAST_HOURS", "24") or "24"),
+    )
+    return s

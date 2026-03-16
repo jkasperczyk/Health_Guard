@@ -1,0 +1,10 @@
+[Unit]
+Description=Run WeatherGuard periodically
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

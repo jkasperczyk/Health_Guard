@@ -1,0 +1,149 @@
+import sqlite3
+import time
+import json
+from typing import Optional, List
+
+DEFAULT_DB_PATH = "/opt/weatherguard/data/feedback.db"
+
+def _connect(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    return conn
+
+def _table_exists(cur: sqlite3.Cursor, name: str) -> bool:
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?;", (name,))
+    return cur.fetchone() is not None
+
+def _columns(cur: sqlite3.Cursor, table: str) -> set[str]:
+    cur.execute(f"PRAGMA table_info({table});")
+    return {row[1] for row in cur.fetchall()}  # row[1] = name
+
+def ensure_schema(db_path: str = DEFAULT_DB_PATH) -> None:
+    """Create/upgrade schema. Safe to run multiple times."""
+    conn = _connect(db_path)
+    cur = conn.cursor()
+
+    # feedback table: create if missing, else migrate columns
+    if not _table_exists(cur, "feedback"):
+        cur.execute(
+            """CREATE TABLE feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                phone TEXT NOT NULL,
+                answer TEXT NOT NULL,
+                detail TEXT,
+                raw TEXT,
+                alert_id INTEGER
+            )"""
+        )
+    else:
+        cols = _columns(cur, "feedback")
+        # add new columns if missing (SQLite supports ADD COLUMN)
+        if "alert_id" not in cols:
+            cur.execute("ALTER TABLE feedback ADD COLUMN alert_id INTEGER;")
+        if "raw" not in cols:
+            cur.execute("ALTER TABLE feedback ADD COLUMN raw TEXT;")
+        if "detail" not in cols:
+            cur.execute("ALTER TABLE feedback ADD COLUMN detail TEXT;")
+
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_feedback_phone_ts ON feedback(phone, ts);")
+
+    # alerts table
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts INTEGER NOT NULL,
+            phone TEXT NOT NULL,
+            profile TEXT NOT NULL,
+            location TEXT,
+            score INTEGER,
+            threshold INTEGER,
+            label TEXT,
+            reasons_json TEXT,
+            sid TEXT,
+            feedback_answer TEXT,
+            feedback_detail TEXT,
+            feedback_ts INTEGER
+        )"""
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_phone_profile_ts ON alerts(phone, profile, ts);")
+
+    conn.commit()
+    conn.close()
+
+def record_alert(
+    phone: str,
+    profile: str,
+    location: str,
+    score: int,
+    threshold: int,
+    label: str,
+    reasons: List[str],
+    sid: Optional[str] = None,
+    db_path: str = DEFAULT_DB_PATH
+) -> int:
+    ensure_schema(db_path)
+    conn = _connect(db_path)
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO alerts (ts, phone, profile, location, score, threshold, label, reasons_json, sid)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (int(time.time()), phone, profile, location, int(score), int(threshold), label, json.dumps(reasons, ensure_ascii=False), sid)
+    )
+    alert_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return int(alert_id)
+
+def record_feedback(
+    phone: str,
+    answer: str,
+    detail: str,
+    raw: str,
+    profile_hint: str = "migraine",
+    link_window_sec: int = 48*3600,
+    db_path: str = DEFAULT_DB_PATH
+) -> int:
+    """Store feedback and (if possible) link it to latest matching alert."""
+    ensure_schema(db_path)
+    now = int(time.time())
+    conn = _connect(db_path)
+    cur = conn.cursor()
+
+    # Find latest alert that doesn't have feedback yet
+    cur.execute(
+        """SELECT id FROM alerts
+            WHERE phone=? AND profile=? AND feedback_answer IS NULL AND ts >= ?
+            ORDER BY ts DESC LIMIT 1""",
+        (phone, profile_hint, now - int(link_window_sec))
+    )
+    row = cur.fetchone()
+    alert_id = row[0] if row else None
+
+    # feedback insert with/without alert_id depending on schema
+    cols = _columns(cur, "feedback")
+    if "alert_id" in cols:
+        cur.execute(
+            """INSERT INTO feedback (ts, phone, answer, detail, raw, alert_id)
+                VALUES (?, ?, ?, ?, ?, ?)""",
+            (now, phone, answer, detail, raw, alert_id)
+        )
+    else:
+        cur.execute(
+            """INSERT INTO feedback (ts, phone, answer, detail, raw)
+                VALUES (?, ?, ?, ?, ?)""",
+            (now, phone, answer, detail, raw)
+        )
+
+    if alert_id is not None:
+        cur.execute(
+            """UPDATE alerts
+                SET feedback_answer=?, feedback_detail=?, feedback_ts=?
+                WHERE id=?""",
+            (answer, detail, now, alert_id)
+        )
+
+    conn.commit()
+    conn.close()
+    return int(alert_id) if alert_id is not None else -1

@@ -1,0 +1,253 @@
+from __future__ import annotations
+
+import logging
+from typing import Any, Dict, List, Optional
+
+log = logging.getLogger("weatherguard.ai")
+
+
+def _alert_title(profile: str) -> str:
+    if profile == "migraine":
+        return "Alert migrenowy"
+    if profile == "allergy":
+        return "Alert alergiczny"
+    if profile == "heart":
+        return "Alert dla chorób serca"
+    if profile == "both":
+        return "Alert zdrowotny (migrena + serce)"
+    return "Alert zdrowotny"
+
+
+def _severity_pl(score: int) -> str:
+    if score >= 75:
+        return "wysokie"
+    if score >= 50:
+        return "umiarkowane"
+    return "niskie"
+
+
+def _profile_focus(profile: str) -> str:
+    if profile == "migraine":
+        return "ryzyko wystąpienia lub nasilenia objawów migreny (ból głowy, aura, nadwrażliwość)."
+    if profile == "allergy":
+        return "ryzyko nasilenia objawów alergii/astmy (katar, kichanie, łzawienie, kaszel, świszczący oddech, duszność)."
+    if profile == "heart":
+        return "ryzyko pogorszenia samopoczucia u osób z problemami krążeniowymi (np. osłabienie, zadyszka, dyskomfort, wahania ciśnienia)."
+    if profile == "both":
+        return "ryzyko objawów migrenowych oraz obciążenia układu krążenia."
+    return "ryzyko pogorszenia samopoczucia."
+
+
+def _medicalize_reason(profile: str, r: str) -> str:
+    """Konwertuje 'czynnik pogodowy' na 'wyzwalacz objawów'."""
+    t = (r or "").lower()
+
+    # Migrena
+    if profile == "migraine":
+        if "ciśnien" in t:
+            return "Wahania ciśnienia: u części osób mogą prowokować ból głowy"
+        if "temperatur" in t:
+            return "Zmiany temperatury: mogą nasilać objawy migrenowe"
+        if "wilgotno" in t:
+            return "Wyższa wilgotność: bywa czynnikiem nasilającym ból i dyskomfort"
+        if "uv" in t or "nasłonecz" in t or "jasne" in t:
+            return "Silne światło/UV: może wyzwalać nadwrażliwość i ból głowy"
+        if "burz" in t or "wyładow" in t or "cape" in t:
+            return "Warunki burzowe: u części osób wiążą się z zaostrzeniem migreny"
+        if "pm2.5" in t or "aqi" in t or "jakość powietrza" in t:
+            return "Gorsza jakość powietrza: może nasilać objawy u wrażliwych"
+        if "pyłk" in t:
+            return "Pyłki: mogą pośrednio nasilać dolegliwości (np. przez podrażnienie)"
+        return "Czynnik środowiskowy: może zwiększać ryzyko objawów migreny"
+
+    # Alergia / astma
+    if profile == "allergy":
+        if "pyłk" in t:
+            return "Pyłki: zwiększają ryzyko kataru/kichania/łzawienia i zaostrzeń"
+        if "pm2.5" in t or "pm10" in t or "pył" in t:
+            return "Pyły zawieszone: podrażniają drogi oddechowe i mogą nasilać objawy"
+        if "aqi" in t or "jakość powietrza" in t:
+            return "Jakość powietrza: gorsze parametry zwiększają ryzyko podrażnień"
+        if "ozon" in t or "o₃" in t:
+            return "Ozon: może nasilać kaszel i duszność"
+        if "no₂" in t or "no2" in t:
+            return "NO₂: może podrażniać drogi oddechowe (kaszel/świszczenie)"
+        if "wiatr" in t or "poryw" in t:
+            return "Wiatr: zwiększa ekspozycję na pyłki/pyły"
+        return "Czynnik środowiskowy: może nasilać objawy alergii/astmy"
+
+    # Serce / krążenie
+    if profile in ("heart", "both"):
+        if "odczuwaln" in t or "temperatur" in t:
+            return "Skrajna temperatura: może zwiększać obciążenie układu krążenia"
+        if "wilgotno" in t:
+            return "Wyższa wilgotność: może pogarszać tolerancję wysiłku i samopoczucie"
+        if "ciśnien" in t:
+            return "Wahania ciśnienia: u części osób wpływają na samopoczucie krążeniowe"
+        if "pm2.5" in t or "pm10" in t or "aqi" in t or "jakość powietrza" in t:
+            return "Zanieczyszczenia powietrza: mogą obciążać układ sercowo-naczyniowy"
+        if "burz" in t:
+            return "Zmiany warunków atmosferycznych: mogą wpływać na samopoczucie"
+        return "Czynnik środowiskowy: może zwiększać obciążenie układu krążenia"
+
+    return r
+
+
+def _pick_medical_reasons(profile: str, reasons: List[str]) -> List[str]:
+    out: List[str] = []
+    seen = set()
+    for r in (reasons or []):
+        m = _medicalize_reason(profile, r)
+        if m and m not in seen:
+            out.append(m)
+            seen.add(m)
+        if len(out) >= 3:
+            break
+    return out
+
+
+def _fallback_message(profile: str, location_name: str, score: int, reasons: List[str]) -> str:
+    title = _alert_title(profile)
+    sev = _severity_pl(score)
+    focus = _profile_focus(profile)
+    med_reasons = _pick_medical_reasons(profile, reasons)
+    why = " • ".join(med_reasons) if med_reasons else "Wyzwalacze niewyraźne, ale wynik przekroczył próg alertu."
+
+    # Stopniowane wskazówki: objawy/wyzwalacze, nie “pogoda”
+    if profile == "migraine":
+        advice = ([
+            "Ogranicz bodźce (światło/hałas), zaplanuj przerwy",
+            "Zadbaj o nawodnienie i regularny posiłek",
+            "Zareaguj wcześnie zgodnie ze swoim planem"
+        ] if score >= 75 else [
+            "Trzymaj rutynę i rób przerwy od ekranów",
+            "Nawodnienie + spokojne tempo dnia",
+            "Obserwuj pierwsze sygnały (ból, aura)"
+        ])
+    elif profile == "allergy":
+        advice = ([
+            "Ogranicz ekspozycję na pyłki/pyły (krócej na zewnątrz)",
+            "Po powrocie: umyj twarz/ręce, zmień ubranie",
+            "Stosuj swój standardowy plan ochrony/leczenia"
+        ] if score >= 75 else [
+            "Unikaj miejsc pylących, obserwuj oddech",
+            "Higiena po wyjściu (twarz/ręce/ubranie)",
+            "Miej pod ręką swoje środki"
+        ])
+    else:  # heart / both
+        advice = ([
+            "Unikaj nagłego wysiłku, działaj spokojnym tempem",
+            "Rób przerwy i monitoruj samopoczucie",
+            "Trzymaj się swojego standardowego planu postępowania"
+        ] if score >= 75 else [
+            "Spokojniejsze tempo dnia i przerwy",
+            "Unikaj przeciążenia, obserwuj objawy",
+            "Jeśli zwykle mierzysz — kontroluj ciśnienie/samopoczucie"
+        ])
+
+    return (
+        f"*{title}*\n"
+        f"{location_name}: Predykcja objawów – ryzyko {sev} ({score}/100). {focus}\n"
+        f"Wyzwalacze: {why}\n"
+        f"Co możesz zrobić: {advice[0]}; {advice[1]}; {advice[2]}\n"
+        f"To nie jest porada medyczna."
+    )
+
+
+def generate_message(
+    openai_api_key: str,
+    model: str,
+    ai_mode: str,
+    profile: str,
+    location_name: str,
+    risk_score: int,
+    risk_label: str,
+    reasons: List[str],
+    feats: Dict[str, Any],
+) -> str:
+    """
+    Wiadomość WhatsApp jako predykcja objawów (nie prognoza pogody).
+    """
+    p = profile or "migraine"
+    title = _alert_title(p)
+    sev = _severity_pl(int(risk_score))
+    focus = _profile_focus(p)
+
+    mode = (ai_mode or "auto").lower()
+    key_set = bool(openai_api_key)
+
+    # Fallback decision
+    if mode == "off" or not key_set:
+        log.info(f"[AI FALLBACK] reason={'mode_off' if mode=='off' else 'no_key'} mode={mode} key_set={key_set} model={model}")
+        return _fallback_message(p, location_name, int(risk_score), reasons)
+
+    med_reasons = _pick_medical_reasons(p, reasons)
+    med_txt = "\n".join([f"- {x}" for x in med_reasons]) if med_reasons else "- (brak wyraźnych wyzwalaczy, ale próg przekroczony)"
+
+    # Minimalne dane liczbowe tylko jako wsparcie, bez opisu pogody
+    key_nums = {
+        "pressure_delta_3h": feats.get("pressure_delta_3h"),
+        "pressure_delta_6h": feats.get("pressure_delta_6h"),
+        "temp_delta_6h": feats.get("temp_delta_6h"),
+        "apparent_delta_6h": feats.get("apparent_delta_6h"),
+        "humidity_now": feats.get("humidity_now"),
+        "pm2_5_max_6h": feats.get("pm2_5_max_6h"),
+        "pm10_max_6h": feats.get("pm10_max_6h"),
+        "aqi_us_max_6h": feats.get("aqi_us_max_6h"),
+        "ozone_max_6h": feats.get("ozone_max_6h"),
+        "no2_max_6h": feats.get("no2_max_6h"),
+        "uv_max_6h": feats.get("uv_max_6h"),
+        "thunder_next_6h": feats.get("thunder_next_6h"),
+        "pollen_max_6h": feats.get("pollen_max_6h"),
+    }
+
+    system = (
+        "Jesteś asystentem tworzącym krótkie, konkretne alerty zdrowotne na WhatsApp.\n"
+        "To nie jest prognoza pogody. To jest predykcja ryzyka objawów.\n"
+        "ZASADY (OBOWIĄZKOWE):\n"
+        "- Pisz WYŁĄCZNIE po polsku.\n"
+        "- NIE opisuj pogody (temperatura/wiatr/chmury) w stylu prognozy. Wspomnij tylko o wpływie na OBJAWY.\n"
+        "- Zawsze zachowaj strukturę dokładnie w 5 liniach:\n"
+        "  1) *<NAGŁÓWEK ALERTU>*\n"
+        "  2) <Lokalizacja>: Predykcja objawów – ryzyko <niskie/umiarkowane/wysokie> (<score>/100). Jedno zdanie o objawach.\n"
+        "  3) Wyzwalacze: maks. 3 krótkie punkty (z podanych wyzwalaczy)\n"
+        "  4) Co możesz zrobić: 2–3 praktyczne wskazówki (ogólne, bez leków i dawek)\n"
+        "  5) To nie jest porada medyczna.\n"
+        "- Nigdy nie używaj low/high/medium.\n"
+        "- Zero lania wody.\n"
+    )
+
+    user = (
+        f"NAGŁÓWEK: {title}\n"
+        f"LOKALIZACJA: {location_name}\n"
+        f"PROFIL: {p}\n"
+        f"RYZYKO: {sev} ({int(risk_score)}/100)\n"
+        f"KONTEKST (objawy): {focus}\n"
+        f"WYZWALACZE (użyj max 3):\n{med_txt}\n"
+        f"DANE LICZBOWE (opcjonalnie, bez prognozy pogody): {key_nums}\n"
+    )
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=openai_api_key)
+
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=0.35,
+            max_tokens=220,
+        )
+        txt = (resp.choices[0].message.content or "").strip()
+        if not txt.startswith("*"):
+            log.info(f"[AI FALLBACK] reason=bad_format mode={mode} model={model}")
+            return _fallback_message(p, location_name, int(risk_score), reasons)
+
+        log.info(f"[AI USED] model={model} mode={mode} profile={p} score={int(risk_score)}")
+        return txt
+
+    except Exception as e:
+        log.warning(f"[AI FALLBACK] reason=exception mode={mode} model={model} err={e.__class__.__name__}: {e}")
+        return _fallback_message(p, location_name, int(risk_score), reasons)

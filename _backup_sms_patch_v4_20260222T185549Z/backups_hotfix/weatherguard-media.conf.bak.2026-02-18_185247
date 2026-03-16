@@ -1,0 +1,16 @@
+# WeatherGuard static media (trend charts)
+# URL: /wg-media/...
+# Files: /opt/weatherguard/public_media/...
+
+Alias /wg-media/ /opt/weatherguard/public_media/
+
+<Directory /opt/weatherguard/public_media/>
+    Options FollowSymLinks
+    AllowOverride None
+    Require all granted
+</Directory>
+
+# Avoid caching during tests; adjust if you want cache.
+<IfModule mod_headers.c>
+    Header set Cache-Control "no-store"
+</IfModule>

@@ -1,0 +1,117 @@
+import sqlite3
+import time
+import json
+from typing import Optional, List, Any, Dict
+
+DEFAULT_DB_PATH = "/opt/weatherguard/data/feedback.db"
+
+def _connect(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    return conn
+
+def ensure_schema(db_path: str = DEFAULT_DB_PATH) -> None:
+    conn = _connect(db_path)
+    cur = conn.cursor()
+    # feedback table (if not exists)
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts INTEGER NOT NULL,
+            phone TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            detail TEXT,
+            raw TEXT,
+            alert_id INTEGER
+        )"""
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_feedback_phone_ts ON feedback(phone, ts);")
+    # alerts table
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts INTEGER NOT NULL,
+            phone TEXT NOT NULL,
+            profile TEXT NOT NULL,
+            location TEXT,
+            score INTEGER,
+            threshold INTEGER,
+            label TEXT,
+            reasons_json TEXT,
+            sid TEXT,
+            feedback_answer TEXT,
+            feedback_detail TEXT,
+            feedback_ts INTEGER
+        )"""
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_phone_profile_ts ON alerts(phone, profile, ts);")
+    conn.commit()
+    conn.close()
+
+def record_alert(
+    phone: str,
+    profile: str,
+    location: str,
+    score: int,
+    threshold: int,
+    label: str,
+    reasons: List[str],
+    sid: Optional[str] = None,
+    db_path: str = DEFAULT_DB_PATH
+) -> int:
+    ensure_schema(db_path)
+    conn = _connect(db_path)
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO alerts (ts, phone, profile, location, score, threshold, label, reasons_json, sid)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (int(time.time()), phone, profile, location, int(score), int(threshold), label, json.dumps(reasons, ensure_ascii=False), sid)
+    )
+    alert_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return int(alert_id)
+
+def record_feedback(
+    phone: str,
+    answer: str,
+    detail: str,
+    raw: str,
+    profile_hint: str = "migraine",
+    link_window_sec: int = 48*3600,
+    db_path: str = DEFAULT_DB_PATH
+) -> int:
+    """Store feedback and link to latest alert (by phone + profile) within a window."""
+    ensure_schema(db_path)
+    now = int(time.time())
+    conn = _connect(db_path)
+    cur = conn.cursor()
+
+    # Find latest alert needing feedback
+    cur.execute(
+        """SELECT id, ts FROM alerts
+            WHERE phone=? AND profile=? AND feedback_answer IS NULL AND ts >= ?
+            ORDER BY ts DESC LIMIT 1""",
+        (phone, profile_hint, now - int(link_window_sec))
+    )
+    row = cur.fetchone()
+    alert_id = row[0] if row else None
+
+    cur.execute(
+        """INSERT INTO feedback (ts, phone, answer, detail, raw, alert_id)
+            VALUES (?, ?, ?, ?, ?, ?)""",
+        (now, phone, answer, detail, raw, alert_id)
+    )
+
+    if alert_id is not None:
+        cur.execute(
+            """UPDATE alerts
+                SET feedback_answer=?, feedback_detail=?, feedback_ts=?
+                WHERE id=?""",
+            (answer, detail, now, alert_id)
+        )
+
+    conn.commit()
+    conn.close()
+    return int(alert_id) if alert_id is not None else -1
