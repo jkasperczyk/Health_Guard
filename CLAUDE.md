@@ -138,4 +138,10 @@ Install: `pip install -r requirements.txt` (use the venv at `venv/`)
 - Base dir: `/opt/weatherguard`
 - Venv: `/opt/weatherguard/venv`
 - Systemd user: `weatherguard`
+
 - The `systemd/` directory contains `.service` and `.timer` unit files to install
+
+## Related Project: Zdrowa (/PROJECTS/Zdrowa)
+User/admin panel application. See /PROJECTS/Zdrowa/CLAUDE.md for details.
+These two projects may share a database and/or API — treat them as one system.
+When making changes that affect the interface between them, check both codebases.
