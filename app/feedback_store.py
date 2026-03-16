@@ -101,6 +101,20 @@ def ensure_schema() -> None:
         c.execute("CREATE INDEX IF NOT EXISTS idx_feedback_phone_ts ON feedback(phone, ts);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_readings_phone_profile_ts ON readings(phone, profile, ts);")
 
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sms_users (
+                phone               TEXT PRIMARY KEY,
+                subscribed          INTEGER NOT NULL DEFAULT 1,
+                factors_json        TEXT,
+                created_at          TEXT,
+                updated_at          TEXT,
+                last_interaction_at TEXT
+            )
+            """
+        )
+        c.execute("CREATE INDEX IF NOT EXISTS idx_sms_users_phone ON sms_users(phone);")
+
         c.commit()
     finally:
         c.close()
@@ -293,3 +307,199 @@ def query_trend(phone: str, profile: str, days: int = 7) -> List[Tuple]:
         ).fetchall()
     finally:
         c.close()
+
+
+# ---------------------------------------------------------------------------
+# SMS user state (replaces sms_users.json)
+# ---------------------------------------------------------------------------
+
+import datetime as _dt
+
+
+def _sms_utc_iso() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _sms_row_to_dict(row) -> Dict[str, Any]:
+    phone, subscribed, factors_json, created_at, updated_at, last_interaction_at = row
+    factors: Dict[str, Any] = {}
+    if factors_json:
+        try:
+            factors = json.loads(factors_json)
+        except Exception:
+            factors = {}
+    return {
+        "subscribed": bool(subscribed),
+        "factors": factors,
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "last_interaction_at": last_interaction_at,
+    }
+
+
+def sms_ensure_user(phone: str) -> Dict[str, Any]:
+    """Upsert a user row (creates if absent). Returns the user dict."""
+    ensure_schema()
+    now = _sms_utc_iso()
+    c = _conn()
+    try:
+        c.execute(
+            """
+            INSERT INTO sms_users(phone, subscribed, factors_json, created_at, updated_at, last_interaction_at)
+            VALUES (?, 1, '{}', ?, ?, ?)
+            ON CONFLICT(phone) DO UPDATE SET
+                updated_at          = excluded.updated_at,
+                last_interaction_at = excluded.last_interaction_at
+            """,
+            (phone, now, now, now),
+        )
+        c.commit()
+        row = c.execute(
+            "SELECT phone, subscribed, factors_json, created_at, updated_at, last_interaction_at FROM sms_users WHERE phone=?",
+            (phone,),
+        ).fetchone()
+        return _sms_row_to_dict(row) if row else {}
+    finally:
+        c.close()
+
+
+def sms_get_user(phone: str) -> Dict[str, Any]:
+    """Return user dict or {} if not found."""
+    ensure_schema()
+    c = _conn()
+    try:
+        row = c.execute(
+            "SELECT phone, subscribed, factors_json, created_at, updated_at, last_interaction_at FROM sms_users WHERE phone=?",
+            (phone,),
+        ).fetchone()
+        return _sms_row_to_dict(row) if row else {}
+    finally:
+        c.close()
+
+
+def sms_is_subscribed(phone: str) -> bool:
+    """Return True if user is subscribed (default True for unknown users)."""
+    ensure_schema()
+    c = _conn()
+    try:
+        row = c.execute("SELECT subscribed FROM sms_users WHERE phone=?", (phone,)).fetchone()
+        return bool(row[0]) if row else True
+    finally:
+        c.close()
+
+
+def sms_set_subscribed(phone: str, subscribed: bool) -> None:
+    ensure_schema()
+    now = _sms_utc_iso()
+    c = _conn()
+    try:
+        c.execute(
+            """
+            INSERT INTO sms_users(phone, subscribed, factors_json, created_at, updated_at, last_interaction_at)
+            VALUES (?, ?, '{}', ?, ?, ?)
+            ON CONFLICT(phone) DO UPDATE SET
+                subscribed          = excluded.subscribed,
+                updated_at          = excluded.updated_at,
+                last_interaction_at = excluded.last_interaction_at
+            """,
+            (phone, 1 if subscribed else 0, now, now, now),
+        )
+        c.commit()
+    finally:
+        c.close()
+
+
+def sms_update_factor(phone: str, key: str, value: Any, extra: Optional[Dict[str, Any]] = None) -> None:
+    ensure_schema()
+    now = _sms_utc_iso()
+    c = _conn()
+    try:
+        row = c.execute("SELECT factors_json FROM sms_users WHERE phone=?", (phone,)).fetchone()
+        factors: Dict[str, Any] = {}
+        if row and row[0]:
+            try:
+                factors = json.loads(row[0])
+            except Exception:
+                factors = {}
+        entry: Dict[str, Any] = {"at": now}
+        if value is not None:
+            entry["value"] = value
+        if extra:
+            entry.update(extra)
+        factors[key] = entry
+        c.execute(
+            """
+            INSERT INTO sms_users(phone, subscribed, factors_json, created_at, updated_at, last_interaction_at)
+            VALUES (?, 1, ?, ?, ?, ?)
+            ON CONFLICT(phone) DO UPDATE SET
+                factors_json        = excluded.factors_json,
+                updated_at          = excluded.updated_at,
+                last_interaction_at = excluded.last_interaction_at
+            """,
+            (phone, json.dumps(factors, ensure_ascii=False), now, now, now),
+        )
+        c.commit()
+    finally:
+        c.close()
+
+
+def sms_clear_factors(phone: str) -> None:
+    ensure_schema()
+    now = _sms_utc_iso()
+    c = _conn()
+    try:
+        c.execute(
+            """
+            INSERT INTO sms_users(phone, subscribed, factors_json, created_at, updated_at, last_interaction_at)
+            VALUES (?, 1, '{}', ?, ?, ?)
+            ON CONFLICT(phone) DO UPDATE SET
+                factors_json        = '{}',
+                updated_at          = excluded.updated_at,
+                last_interaction_at = excluded.last_interaction_at
+            """,
+            (phone, now, now, now),
+        )
+        c.commit()
+    finally:
+        c.close()
+
+
+def sms_migrate_from_json(json_path: str) -> int:
+    """Import sms_users.json rows into the sms_users table. INSERT OR IGNORE — safe to call repeatedly.
+    Returns number of rows newly inserted."""
+    if not os.path.exists(json_path):
+        return 0
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return 0
+    if not isinstance(data, dict):
+        return 0
+    ensure_schema()
+    now = _sms_utc_iso()
+    c = _conn()
+    count = 0
+    try:
+        for phone, u in data.items():
+            if not isinstance(u, dict):
+                continue
+            c.execute(
+                """
+                INSERT OR IGNORE INTO sms_users(phone, subscribed, factors_json, created_at, updated_at, last_interaction_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    phone,
+                    1 if u.get("subscribed", True) else 0,
+                    json.dumps(u.get("factors") or {}, ensure_ascii=False),
+                    u.get("created_at") or now,
+                    u.get("updated_at") or now,
+                    u.get("last_interaction_at") or now,
+                ),
+            )
+            count += c.execute("SELECT changes()").fetchone()[0]
+        c.commit()
+    finally:
+        c.close()
+    return count
