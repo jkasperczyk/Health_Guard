@@ -42,9 +42,6 @@ def _table_exists(c: sqlite3.Connection, name: str) -> bool:
 def _fetch_points(phone: str, profile: str, since_ts: int) -> List[Point]:
     """Prefer readings (continuous). Fallback to alerts (sparse)."""
     phone = (phone or "").strip()
-    if phone.startswith("whatsapp:"):
-        phone = phone.replace("whatsapp:", "", 1)
-
     c = _conn()
     try:
         if _table_exists(c, "readings"):
@@ -174,9 +171,6 @@ def main() -> int:
             continue
 
         phone_norm = phone.strip()
-        if phone_norm.startswith("whatsapp:"):
-            phone_norm = phone_norm.replace("whatsapp:", "", 1)
-
         pts = _fetch_points(phone_norm, profile, since)
         if len(pts) < 2:
             skipped += 1

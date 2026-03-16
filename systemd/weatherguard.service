@@ -1,5 +1,5 @@
 [Unit]
-Description=WeatherGuard - weather risk monitor (AI + WhatsApp)
+Description=WeatherGuard - weather risk monitor (AI + SMS)
 After=network-online.target
 Wants=network-online.target
 

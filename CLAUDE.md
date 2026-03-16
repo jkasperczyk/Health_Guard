@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Does
 
-Health_Guard (also called WeatherGuard) monitors weather and environmental conditions to predict health risks and sends Polish-language alerts via WhatsApp/SMS. It supports three health profiles: **migraine**, **heart**, and **allergy**.
+Health_Guard (also called WeatherGuard) monitors weather and environmental conditions to predict health risks and sends Polish-language alerts via SMS. It supports three health profiles: **migraine**, **heart**, and **allergy**.
 
 ## Running the Application
 
@@ -17,9 +17,6 @@ python -m app.runner --once
 
 # Continuous mode with explicit env file
 python -m app.runner --env /opt/weatherguard/config/.env
-
-# WhatsApp feedback webhook (port 8020)
-python -m app.webhook --host 127.0.0.1 --port 8020
 
 # SMS feedback webhook
 python -m weatherguard.sms_webhook_server
@@ -49,7 +46,7 @@ Logs: `/opt/weatherguard/logs/weatherguard.log` (rotating, 2MB × 5)
 
 ### Two Subsystems
 
-**1. WhatsApp Alert System (`app/`)** — scheduled runner + webhook feedback
+**1. Alert Runner (`app/`)** — scheduled runner sending SMS alerts
 **2. SMS System (`weatherguard/`)** — Twilio SMS inbound webhook + user state
 
 ### Core Data Flow
@@ -63,11 +60,9 @@ Open-Meteo + GIOŚ + IMGW + NOAA + Google Pollen
         ↓ if score ≥ threshold and cooldown elapsed
      ai.py    (GPT-4o-mini, Polish, max 220 tokens)
         ↓
-  whatsapp.py (Twilio send)
+  runner.py   (Twilio SMS send)
         ↓
   feedback_store.py (SQLite: alerts + readings tables)
-        ↑
-  webhook.py  (Twilio inbound → feedback table)
 ```
 
 ### Key Modules
@@ -79,8 +74,6 @@ Open-Meteo + GIOŚ + IMGW + NOAA + Google Pollen
 | `app/weather.py` | Fetches 7 external APIs, produces feature dict via `extract_features()` |
 | `app/risk.py` | `migraine_risk()`, `heart_risk()`, `allergy_risk()` → `RiskResult(score, label, reasons)` |
 | `app/ai.py` | OpenAI call with fallback deterministic message; respects `AI_MODE` env var |
-| `app/whatsapp.py` | Thin Twilio wrapper |
-| `app/webhook.py` | HTTP server for WhatsApp replies (TwiML response) |
 | `app/feedback_store.py` | All SQLite operations; WAL mode; auto-links feedback to last alert within 24h |
 | `app/state.py` | JSON-based cooldown tracking keyed by `phone::profile` |
 | `weatherguard/sms_parser.py` | Parses inbound SMS commands (help/status/stop/start/ack/no/delay) |

@@ -39,7 +39,7 @@ class Settings:
 
     twilio_account_sid: str
     twilio_auth_token: str
-    twilio_whatsapp_from: str
+    twilio_sms_from: str
 
     forecast_hours: int
 
@@ -81,7 +81,7 @@ def load_settings(env_path: Optional[str] = None) -> Settings:
 
         twilio_account_sid=_env_str("TWILIO_ACCOUNT_SID", ""),
         twilio_auth_token=_env_str("TWILIO_AUTH_TOKEN", ""),
-        twilio_whatsapp_from=_env_str("TWILIO_FROM", ""),
+        twilio_sms_from=_env_str("TWILIO_FROM", ""),
 
         forecast_hours=_env_int("FORECAST_HOURS", 24),
 

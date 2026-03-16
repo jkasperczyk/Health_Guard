@@ -11,8 +11,8 @@ from app.weather import resolve_location, fetch_weather, fetch_air_quality, extr
 from app.risk import migraine_risk, heart_risk, combined_risk, allergy_risk
 from app.ai import generate_message
 from app.state import StateDB
-from app.whatsapp import WhatsAppSender
 from app.feedback_store import record_alert, record_reading
+from twilio.rest import Client as TwilioClient
 
 log = logging.getLogger("weatherguard.runner")
 
@@ -120,11 +120,7 @@ def main():
 
     sender = None
     if not args.dry_run:
-        sender = WhatsAppSender(
-            settings.twilio_account_sid,
-            settings.twilio_auth_token,
-            settings.twilio_whatsapp_from,
-        )
+        sender = TwilioClient(settings.twilio_account_sid, settings.twilio_auth_token)
 
     now_ts = int(time.time())
     now_hour = datetime.now().hour
@@ -213,7 +209,12 @@ def main():
                 log.info(msg)
                 continue
 
-            sid = sender.send(u.phone, msg)
+            twilio_msg = sender.messages.create(
+                from_=settings.twilio_sms_from,
+                to=u.phone,
+                body=msg,
+            )
+            sid = twilio_msg.sid
             st.mark_sent(u.phone, u.profile, rr.score)
             log.info(f"[SENT] to={u.phone} sid={sid} loc={loc.name} score={rr.score} th={th}")
 
