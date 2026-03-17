@@ -4,22 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Does
 
-Health_Guard (also called WeatherGuard) monitors weather and environmental conditions to predict health risks and sends Polish-language alerts via SMS. It supports three health profiles: **migraine**, **heart**, and **allergy**.
+Health_Guard (also called WeatherGuard) monitors weather and environmental conditions to predict health risks. It supports three health profiles: **migraine**, **heart**, and **allergy**. Alerts are delivered via browser **Web Push notifications** (PWA) through Zdrowa — no SMS/Twilio.
 
 ## Running the Application
 
 ```bash
-# Single test run (no messages sent)
+# Single test run (no alerts queued)
 python -m app.runner --dry-run
 
-# Single cycle (sends real alerts)
+# Single cycle (queues real alerts to alerts_queue in feedback.db)
 python -m app.runner --once
 
 # Continuous mode with explicit env file
 python -m app.runner --env /opt/weatherguard/config/.env
-
-# SMS feedback webhook
-python -m weatherguard.sms_webhook_server
 ```
 
 ## Admin & Reports
@@ -44,25 +41,22 @@ Logs: `/opt/weatherguard/logs/weatherguard.log` (rotating, 2MB × 5)
 
 ## Architecture
 
-### Two Subsystems
-
-**1. Alert Runner (`app/`)** — scheduled runner sending SMS alerts
-**2. SMS System (`weatherguard/`)** — Twilio SMS inbound webhook + user state
-
 ### Core Data Flow
 
 ```
 Open-Meteo + GIOŚ + IMGW + NOAA + Google Pollen
         ↓
-   weather.py  (extract_features → 40+ metrics)
+   weather.py  (extract_features → 40+ metrics; extract_features_at_offset for predictive)
         ↓
-    risk.py   (score 0-100 per profile)
+    risk.py   (score 0-100 per profile; two-layer: base_score × personal_modifier)
         ↓ if score ≥ threshold and cooldown elapsed
      ai.py    (GPT-4o-mini, Polish, max 220 tokens)
         ↓
-  runner.py   (Twilio SMS send)
+  runner.py   (writes to alerts_queue in feedback.db)
         ↓
-  feedback_store.py (SQLite: alerts + readings tables)
+  Zdrowa      (reads alerts_queue, sends Web Push notifications)
+        ↓
+  feedback_store.py (SQLite: alerts, readings, alerts_queue, forecast_alerts tables)
 ```
 
 ### Key Modules
@@ -71,13 +65,11 @@ Open-Meteo + GIOŚ + IMGW + NOAA + Google Pollen
 |------|------|
 | `app/runner.py` | Entry point: iterates users, orchestrates full pipeline |
 | `app/config.py` | Loads `.env`, parses `users.txt`, exposes typed settings |
-| `app/weather.py` | Fetches 7 external APIs, produces feature dict via `extract_features()` |
-| `app/risk.py` | `migraine_risk()`, `heart_risk()`, `allergy_risk()` → `RiskResult(score, label, reasons)` |
+| `app/weather.py` | Fetches 7 external APIs; `extract_features()` + `extract_features_at_offset()` |
+| `app/risk.py` | `migraine_risk()`, `heart_risk()`, `allergy_risk()` → `RiskResult(score, base_score, label, reasons)` |
 | `app/ai.py` | OpenAI call with fallback deterministic message; respects `AI_MODE` env var |
-| `app/feedback_store.py` | All SQLite operations; WAL mode; auto-links feedback to last alert within 24h |
+| `app/feedback_store.py` | All SQLite operations; WAL mode; alerts_queue, push_subscriptions, forecast_alerts |
 | `app/state.py` | JSON-based cooldown tracking keyed by `phone::profile` |
-| `weatherguard/sms_parser.py` | Parses inbound SMS commands (help/status/stop/start/ack/no/delay) |
-| `weatherguard/sms_state.py` | JSON user DB at `data/sms_users.json` |
 
 ### Configuration
 
@@ -90,7 +82,6 @@ Valid profiles: `migraine`, `heart`, `allergy`, `both`
 
 **`config/.env`** — secrets (never commit):
 - `OPENAI_API_KEY`, `OPENAI_MODEL` (default: `gpt-4o-mini`)
-- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, Twilio from-numbers
 - `BASE_DIR` (default: `/opt/weatherguard`)
 - `COOLDOWN_MINUTES` (default: `360`)
 - `DEFAULT_THRESHOLD_MIGRAINE/HEART/ALLERGY` (defaults: 65/70/60)
@@ -100,9 +91,8 @@ Valid profiles: `migraine`, `heart`, `allergy`, `both`
 
 | Store | Path | Contents |
 |-------|------|----------|
-| SQLite | `data/feedback.db` | `alerts`, `feedback`, `readings` tables |
+| SQLite | `data/feedback.db` | `alerts`, `readings`, `alerts_queue`, `forecast_alerts`, `push_subscriptions` tables |
 | JSON | `state.json` | Alert cooldown timestamps + last scores |
-| JSON | `data/sms_users.json` | SMS subscriber state |
 | JSON | `data/gios_stations_cache.json` | GIOŚ stations (refreshed weekly) |
 
 ### External APIs
@@ -112,14 +102,12 @@ Valid profiles: `migraine`, `heart`, `allergy`, `both`
 - **IMGW** — Polish meteorological warnings
 - **NOAA** — geomagnetic Kp index
 - **Google Pollen API** — optional, high-quality pollen data
-- **Twilio** — WhatsApp + SMS messaging
 - **OpenAI** — GPT-4o-mini for Polish alert text generation
 
 ### Dependencies
 
 ```
 openai>=1.30.0
-twilio>=9.0.0
 requests>=2.31.0
 python-dotenv>=1.0.1
 ```
@@ -136,5 +124,6 @@ Install: `pip install -r requirements.txt` (use the venv at `venv/`)
 
 ## Related Project: Zdrowa (/PROJECTS/Zdrowa)
 User/admin panel application. See /PROJECTS/Zdrowa/CLAUDE.md for details.
-These two projects may share a database and/or API — treat them as one system.
+These two projects share `feedback.db`. Zdrowa reads `alerts_queue` and sends Web Push
+notifications to users who have subscribed via the PWA.
 When making changes that affect the interface between them, check both codebases.

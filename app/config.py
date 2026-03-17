@@ -37,10 +37,6 @@ class Settings:
     openai_api_key: str
     openai_model: str
 
-    twilio_account_sid: str
-    twilio_auth_token: str
-    twilio_sms_from: str
-
     forecast_hours: int
 
     default_threshold_migraine: int
@@ -78,10 +74,6 @@ def load_settings(env_path: Optional[str] = None) -> Settings:
         ai_mode=ai_mode,
         openai_api_key=_env_str("OPENAI_API_KEY", ""),
         openai_model=_env_str("OPENAI_MODEL", "gpt-4o-mini"),
-
-        twilio_account_sid=_env_str("TWILIO_ACCOUNT_SID", ""),
-        twilio_auth_token=_env_str("TWILIO_AUTH_TOKEN", ""),
-        twilio_sms_from=_env_str("TWILIO_FROM", ""),
 
         forecast_hours=_env_int("FORECAST_HOURS", 24),
 

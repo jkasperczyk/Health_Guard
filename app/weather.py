@@ -476,6 +476,106 @@ def fetch_google_pollen_index(lat: float, lon: float) -> Optional[dict]:
     }
 
 
+def extract_features_at_offset(
+    weather: Dict[str, Any],
+    air_quality: Dict[str, Any],
+    hour_offset: int,
+    loc: Optional[Location] = None,
+) -> Dict[str, Any]:
+    """Extract features starting at now+hour_offset (for predictive scoring).
+
+    Returns the same feature keys as extract_features(), but computed over the
+    6-hour window starting at now+hour_offset. Static sources (GIOŚ, IMGW, NOAA,
+    Google Pollen) are not re-fetched — they do not change hour-to-hour.
+    """
+    feats: Dict[str, Any] = {}
+
+    hourly = (weather or {}).get("hourly") or {}
+    times = hourly.get("time") or []
+    if not times:
+        return feats
+
+    i0 = _find_idx0(times) + max(0, int(hour_offset))
+    n6 = 7  # 6-hour window
+
+    temp = hourly.get("temperature_2m") or []
+    app  = hourly.get("apparent_temperature") or []
+    rh   = hourly.get("relative_humidity_2m") or []
+    pres = hourly.get("surface_pressure") or []
+    gust = hourly.get("wind_gusts_10m") or []
+    pprob = hourly.get("precipitation_probability") or []
+    uv    = hourly.get("uv_index") or []
+    sw    = hourly.get("shortwave_radiation") or []
+    cloud = hourly.get("cloud_cover") or []
+    cape  = hourly.get("cape") or []
+    wcode = hourly.get("weather_code") or []
+
+    temp6  = _slice(temp, i0, n6)
+    app6   = _slice(app, i0, n6)
+    pres6  = _slice(pres, i0, n6)
+    rh6    = _slice(rh, i0, n6)
+    gust6  = _slice(gust, i0, n6)
+    pprob6 = _slice(pprob, i0, n6)
+    uv6    = _slice(uv, i0, n6)
+    sw6    = _slice(sw, i0, n6)
+    cloud6 = _slice(cloud, i0, n6)
+    cape6  = _slice(cape, i0, n6)
+
+    def _delta(arr: List[float]) -> float:
+        return (arr[-1] - arr[0]) if len(arr) >= 2 else 0.0
+
+    feats["pressure_delta_3h"] = (pres6[3] - pres6[0]) if len(pres6) >= 4 else None
+    feats["pressure_delta_6h"] = _delta(pres6) if pres6 else None
+    feats["temp_delta_6h"]     = _delta(temp6) if temp6 else None
+    feats["apparent_delta_6h"] = _delta(app6) if app6 else None
+    feats["humidity_now"]      = int(round(rh6[0])) if rh6 else None
+    feats["gust_max_6h"]       = max(gust6) if gust6 else None
+    feats["precip_prob_max_6h"]= max(pprob6) if pprob6 else None
+    feats["uv_max_6h"]         = max(uv6) if uv6 else None
+    feats["sw_rad_max_6h"]     = max(sw6) if sw6 else None
+    feats["cloud_min_6h"]      = min(cloud6) if cloud6 else None
+    feats["cape_max_6h"]       = max(cape6) if cape6 else None
+
+    thunder = False
+    try:
+        for x in wcode[i0:i0 + n6]:
+            if x is None:
+                continue
+            if int(x) in {95, 96, 99}:
+                thunder = True
+                break
+    except Exception:
+        pass
+    feats["thunder_next_6h"] = thunder
+
+    aqh = (air_quality or {}).get("hourly") or {}
+    aqt = aqh.get("time") or []
+    if aqt:
+        j0 = _find_idx0(aqt) + max(0, int(hour_offset))
+        pm25 = _slice(aqh.get("pm2_5") or [], j0, n6)
+        aqi  = _slice(aqh.get("us_aqi") or [], j0, n6)
+        feats["pm2_5_max_6h"]  = max(pm25) if pm25 else None
+        feats["aqi_us_max_6h"] = max(aqi) if aqi else None
+        pollen_arrays = [
+            aqh.get("alder_pollen") or [],
+            aqh.get("birch_pollen") or [],
+            aqh.get("grass_pollen") or [],
+            aqh.get("mugwort_pollen") or [],
+            aqh.get("olive_pollen") or [],
+            aqh.get("ragweed_pollen") or [],
+        ]
+        pollen_vals: List[float] = []
+        for arr in pollen_arrays:
+            pollen_vals.extend(_slice(arr, j0, n6))
+        feats["pollen_max_6h"] = max(pollen_vals) if pollen_vals else 0.0
+    else:
+        feats["pm2_5_max_6h"]  = None
+        feats["aqi_us_max_6h"] = None
+        feats["pollen_max_6h"] = 0.0
+
+    return feats
+
+
 def extract_features(weather: Dict[str, Any], air_quality: Dict[str, Any], loc: Optional[Location] = None) -> Dict[str, Any]:
     """Extract features for next 6 hours + some 'now' values.
 

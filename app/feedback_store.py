@@ -174,6 +174,57 @@ def ensure_schema() -> None:
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_symptom_log_phone_ts ON symptom_log(phone, timestamp);")
 
+        # Push subscription store (for Web Push notifications)
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                phone       TEXT NOT NULL,
+                endpoint    TEXT NOT NULL,
+                keys_p256dh TEXT NOT NULL,
+                keys_auth   TEXT NOT NULL,
+                created_at  TEXT NOT NULL,
+                UNIQUE(phone, endpoint)
+            )
+            """
+        )
+        c.execute("CREATE INDEX IF NOT EXISTS idx_push_subs_phone ON push_subscriptions(phone);")
+
+        # Alert queue: runner writes here, Zdrowa sends push notifications
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS alerts_queue (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                phone      TEXT NOT NULL,
+                profile    TEXT NOT NULL,
+                score      INTEGER NOT NULL,
+                threshold  INTEGER NOT NULL,
+                message    TEXT,
+                created_at TEXT NOT NULL,
+                sent_at    TEXT
+            )
+            """
+        )
+        c.execute("CREATE INDEX IF NOT EXISTS idx_alerts_queue_phone ON alerts_queue(phone, sent_at);")
+
+        # Forecast alerts: predictive risk windows (+3h..+12h)
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS forecast_alerts (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                phone          TEXT NOT NULL,
+                profile        TEXT NOT NULL,
+                hour_offset    INTEGER NOT NULL,
+                forecast_score INTEGER NOT NULL,
+                current_score  INTEGER NOT NULL,
+                threshold      INTEGER NOT NULL,
+                message        TEXT,
+                created_at     TEXT NOT NULL
+            )
+            """
+        )
+        c.execute("CREATE INDEX IF NOT EXISTS idx_forecast_alerts_phone ON forecast_alerts(phone, created_at);")
+
         c.commit()
     finally:
         c.close()
@@ -604,6 +655,135 @@ def record_symptom(
         )
         c.commit()
         return int(cur.lastrowid)
+    finally:
+        c.close()
+
+
+def record_alert_queue(
+    *,
+    phone: str,
+    profile: str,
+    score: int,
+    threshold: int,
+    message: Optional[str] = None,
+) -> int:
+    """Write a pending push alert to the queue. Returns new row id."""
+    ensure_schema()
+    import datetime as _dt
+    ts = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    c = _conn()
+    try:
+        cur = c.execute(
+            "INSERT INTO alerts_queue(phone, profile, score, threshold, message, created_at) VALUES(?,?,?,?,?,?)",
+            (phone, profile, score, threshold, message, ts),
+        )
+        c.commit()
+        return int(cur.lastrowid)
+    finally:
+        c.close()
+
+
+def record_forecast_alert(
+    *,
+    phone: str,
+    profile: str,
+    hour_offset: int,
+    forecast_score: int,
+    current_score: int,
+    threshold: int,
+    message: Optional[str] = None,
+) -> int:
+    """Record a predictive risk event for a future hour window."""
+    ensure_schema()
+    import datetime as _dt
+    ts = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    c = _conn()
+    try:
+        cur = c.execute(
+            "INSERT INTO forecast_alerts(phone, profile, hour_offset, forecast_score, current_score, threshold, message, created_at)"
+            " VALUES(?,?,?,?,?,?,?,?)",
+            (phone, profile, hour_offset, forecast_score, current_score, threshold, message, ts),
+        )
+        c.commit()
+        return int(cur.lastrowid)
+    finally:
+        c.close()
+
+
+def save_push_subscription(
+    phone: str,
+    endpoint: str,
+    keys_p256dh: str,
+    keys_auth: str,
+) -> None:
+    ensure_schema()
+    import datetime as _dt
+    ts = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    c = _conn()
+    try:
+        c.execute(
+            """
+            INSERT INTO push_subscriptions(phone, endpoint, keys_p256dh, keys_auth, created_at)
+            VALUES(?,?,?,?,?)
+            ON CONFLICT(phone, endpoint) DO UPDATE SET
+                keys_p256dh = excluded.keys_p256dh,
+                keys_auth   = excluded.keys_auth
+            """,
+            (phone, endpoint, keys_p256dh, keys_auth, ts),
+        )
+        c.commit()
+    finally:
+        c.close()
+
+
+def delete_push_subscription(phone: str, endpoint: str) -> None:
+    ensure_schema()
+    c = _conn()
+    try:
+        c.execute("DELETE FROM push_subscriptions WHERE phone=? AND endpoint=?", (phone, endpoint))
+        c.commit()
+    finally:
+        c.close()
+
+
+def get_push_subscriptions(phone: str) -> List[Dict[str, Any]]:
+    ensure_schema()
+    c = _conn()
+    try:
+        rows = c.execute(
+            "SELECT endpoint, keys_p256dh, keys_auth FROM push_subscriptions WHERE phone=?", (phone,)
+        ).fetchall()
+        return [{"endpoint": r[0], "keys": {"p256dh": r[1], "auth": r[2]}} for r in rows]
+    finally:
+        c.close()
+
+
+def get_unsent_queue_alerts(limit: int = 100) -> List[Dict[str, Any]]:
+    ensure_schema()
+    c = _conn()
+    try:
+        rows = c.execute(
+            "SELECT id, phone, profile, score, threshold, message, created_at FROM alerts_queue"
+            " WHERE sent_at IS NULL ORDER BY created_at ASC LIMIT ?",
+            (limit,)
+        ).fetchall()
+        return [
+            {"id": r[0], "phone": r[1], "profile": r[2], "score": r[3],
+             "threshold": r[4], "message": r[5], "created_at": r[6]}
+            for r in rows
+        ]
+    finally:
+        c.close()
+
+
+def mark_queue_alert_sent(alert_id: int) -> None:
+    ensure_schema()
+    import datetime as _dt
+    ts = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    c = _conn()
+    try:
+        c.execute("UPDATE alerts_queue SET sent_at=? WHERE id=?", (ts, alert_id))
+        c.commit()
     finally:
         c.close()
 

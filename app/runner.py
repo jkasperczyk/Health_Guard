@@ -7,14 +7,20 @@ from datetime import datetime
 
 from app.config import load_settings, parse_users, parse_quiet_hours, is_in_quiet_hours
 from app.logging_setup import setup_logging
-from app.weather import resolve_location, fetch_weather, fetch_air_quality, extract_features
+from app.weather import resolve_location, fetch_weather, fetch_air_quality, extract_features, extract_features_at_offset
 from app.risk import migraine_risk, heart_risk, combined_risk, allergy_risk
 from app.ai import generate_message
 from app.state import StateDB
-from app.feedback_store import record_alert, record_reading
-from twilio.rest import Client as TwilioClient
+from app.feedback_store import (
+    record_alert, record_reading,
+    record_alert_queue, record_forecast_alert,
+    get_wg_users, get_today_wellbeing,
+)
 
 log = logging.getLogger("weatherguard.runner")
+
+# Predictive alert windows (hours ahead)
+FORECAST_OFFSETS = [3, 6, 9, 12]
 
 
 def pick_threshold(settings, user) -> int:
@@ -70,7 +76,7 @@ def enforce_header(msg: str, profile: str) -> str:
 
 
 def _call_generate_message(settings, u, loc_name: str, rr, feats):
-    """Signature-compatible call to app.ai.generate_message (ai.py may evolve)."""
+    """Signature-compatible call to app.ai.generate_message."""
     import inspect
 
     kwargs = {
@@ -105,13 +111,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--env", default=None, help="Path to .env file")
     ap.add_argument("--once", action="store_true", help="Run one cycle and exit")
-    ap.add_argument("--dry-run", action="store_true", help="Do not send messages")
+    ap.add_argument("--dry-run", action="store_true", help="Do not send messages / write alerts_queue")
     args = ap.parse_args()
 
     settings = load_settings(args.env)
     setup_logging(settings.log_dir)
 
-    from app.feedback_store import get_wg_users, get_today_wellbeing
     users = get_wg_users()
     if not users:
         log.info("Brak użytkowników w wg_users — fallback: users.txt")
@@ -121,10 +126,6 @@ def main():
         return
 
     st = StateDB(settings.state_db)
-
-    sender = None
-    if not args.dry_run:
-        sender = TwilioClient(settings.twilio_account_sid, settings.twilio_auth_token)
 
     now_ts = int(time.time())
     now_hour = datetime.now().hour
@@ -167,6 +168,7 @@ def main():
             feats = extract_features(w, a)
 
             # Merge today's self-reported wellbeing (best-effort)
+            wellbeing = {}
             try:
                 wellbeing = get_today_wellbeing(u.phone)
                 if wellbeing:
@@ -177,7 +179,7 @@ def main():
 
             rr = pick_risk_fn(u.profile)(feats)
 
-            # trend reading (always, best-effort)
+            # Record reading (always, best-effort)
             try:
                 record_reading(
                     phone=u.phone,
@@ -192,6 +194,45 @@ def main():
                 )
             except Exception:
                 pass
+
+            # Predictive forecast: score future windows and record if above threshold
+            try:
+                for offset in FORECAST_OFFSETS:
+                    f_feats = extract_features_at_offset(w, a, offset)
+                    if wellbeing:
+                        f_feats.update(wellbeing)
+                    f_rr = pick_risk_fn(u.profile)(f_feats)
+                    # Only record if forecast crosses threshold while current is below
+                    if f_rr.score >= th:
+                        forecast_msg = (
+                            f"⚠ Prognoza: ryzyko może wzrosnąć do ~{f_rr.score} w ciągu {offset}h"
+                        )
+                        if f_rr.reasons:
+                            forecast_msg += f" ({f_rr.reasons[0]})"
+                        if not args.dry_run:
+                            record_forecast_alert(
+                                phone=u.phone,
+                                profile=u.profile,
+                                hour_offset=offset,
+                                forecast_score=int(f_rr.score),
+                                current_score=int(rr.score),
+                                threshold=int(th),
+                                message=forecast_msg,
+                            )
+                        if rr.score < th:
+                            # Queue push for predictive alert (only when current < threshold)
+                            if not args.dry_run:
+                                record_alert_queue(
+                                    phone=u.phone,
+                                    profile=u.profile,
+                                    score=int(f_rr.score),
+                                    threshold=int(th),
+                                    message=forecast_msg,
+                                )
+                            log.info(f"[FORECAST] {u.phone} ({u.profile}) +{offset}h score={f_rr.score} th={th}")
+                        break  # queue only the first crossing window
+            except Exception as e:
+                log.debug(f"[FORECAST SKIP] {u.phone}: {e}")
 
             if rr.score < th:
                 log.info(f"[OK] {u.phone} ({u.profile}) {loc.name} score={rr.score} th={th}")
@@ -211,29 +252,27 @@ def main():
             msg = _call_generate_message(settings, u, loc.name, rr, feats)
             msg = enforce_header(msg, u.profile)
 
-            if u.profile == "migraine":
-                q = (
-                    "Czy obserwujesz u siebie objawy lub sygnały migreny?\n"
-                    "Odpowiedz: TAK OBJAWY / TAK SYGNAŁY / NIE"
-                )
-                if "Czy obserwujesz u siebie objawy" not in (msg or ""):
-                    msg = (msg or "").rstrip() + "\n\n" + q
-
             if args.dry_run:
-                log.info(f"[DRY-RUN SEND] to={u.phone} profile={u.profile} loc={loc.name} score={rr.score} th={th}")
+                log.info(f"[DRY-RUN] to={u.phone} profile={u.profile} loc={loc.name} score={rr.score} th={th}")
                 log.info(msg)
                 continue
 
-            twilio_msg = sender.messages.create(
-                from_=settings.twilio_sms_from,
-                to=u.phone,
-                body=msg,
-            )
-            sid = twilio_msg.sid
-            st.mark_sent(u.phone, u.profile, rr.score)
-            log.info(f"[SENT] to={u.phone} sid={sid} loc={loc.name} score={rr.score} th={th}")
+            # Queue push notification instead of SMS
+            try:
+                record_alert_queue(
+                    phone=u.phone,
+                    profile=u.profile,
+                    score=int(rr.score),
+                    threshold=int(th),
+                    message=msg,
+                )
+            except Exception as e:
+                log.warning(f"[WARN] record_alert_queue failed: {e}")
 
-            # IMPORTANT FIX: store alert with correct kwargs (previously this silently failed)
+            st.mark_sent(u.phone, u.profile, rr.score)
+            log.info(f"[QUEUED] to={u.phone} profile={u.profile} loc={loc.name} score={rr.score} th={th}")
+
+            # Record alert history (for display in Zdrowa alerts page)
             try:
                 record_alert(
                     phone=u.phone,
@@ -243,7 +282,7 @@ def main():
                     threshold=int(th),
                     label=str(getattr(rr, "label", "")),
                     reasons=list(getattr(rr, "reasons", [])),
-                    sid=str(sid) if sid is not None else None,
+                    sid=None,
                 )
             except Exception as e:
                 log.warning(f"[WARN] record_alert failed: {e}")
