@@ -34,8 +34,9 @@ class Settings:
     state_db: str
 
     ai_mode: str              # off / auto / on
-    openai_api_key: str
-    openai_model: str
+    anthropic_api_key: str
+    claude_model_fast: str
+    claude_model_smart: str
 
     forecast_hours: int
 
@@ -72,8 +73,9 @@ def load_settings(env_path: Optional[str] = None) -> Settings:
         state_db=state_db,
 
         ai_mode=ai_mode,
-        openai_api_key=_env_str("OPENAI_API_KEY", ""),
-        openai_model=_env_str("OPENAI_MODEL", "gpt-4o-mini"),
+        anthropic_api_key=_env_str("ANTHROPIC_API_KEY", ""),
+        claude_model_fast=_env_str("CLAUDE_MODEL_FAST", "claude-haiku-4-5-20251001"),
+        claude_model_smart=_env_str("CLAUDE_MODEL_SMART", "claude-sonnet-4-6"),
 
         forecast_hours=_env_int("FORECAST_HOURS", 24),
 

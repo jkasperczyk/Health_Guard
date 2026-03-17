@@ -80,8 +80,8 @@ def _call_generate_message(settings, u, loc_name: str, rr, feats):
     import inspect
 
     kwargs = {
-        "openai_api_key": settings.openai_api_key,
-        "model": settings.openai_model,
+        "api_key": settings.anthropic_api_key,
+        "model": settings.claude_model_fast,
         "ai_mode": settings.ai_mode,
         "score": getattr(rr, "score", None),
         "risk_score": getattr(rr, "score", None),

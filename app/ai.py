@@ -4,7 +4,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
-from openai import OpenAI
+from anthropic import Anthropic
 
 log = logging.getLogger("weatherguard")
 
@@ -30,7 +30,6 @@ def _fallback_message(
     reasons: List[str],
 ) -> str:
     title = _alert_title(profile)
-    # Keep the tone health-focused, not "forecast".
     lines = [
         f"{title}",
         f"Lokalizacja: {location_name}",
@@ -58,9 +57,9 @@ def generate_message(
     api_key: Optional[str] = None,
     **_: Any,
 ) -> str:
-    """Generate a Polish, symptom-focused alert message.
+    """Generate a Polish, symptom-focused alert message using Claude.
 
-    If AI_MODE=off or no quota/error -> uses deterministic fallback message.
+    If AI_MODE=off or no API key / error -> uses deterministic fallback message.
     """
 
     reasons = reasons or []
@@ -71,12 +70,12 @@ def generate_message(
         log.info("AI_MODE=off → using fallback message.")
         return _fallback_message(profile, location_name, score, label_pl, reasons)
 
-    api_key = api_key or os.getenv("OPENAI_API_KEY")
+    api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        log.info("OPENAI_API_KEY missing → using fallback message.")
+        log.info("ANTHROPIC_API_KEY missing → using fallback message.")
         return _fallback_message(profile, location_name, score, label_pl, reasons)
 
-    model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    model = model or os.getenv("CLAUDE_MODEL_FAST", "claude-haiku-4-5-20251001")
 
     title = _alert_title(profile)
 
@@ -105,7 +104,6 @@ def generate_message(
         if k in feats
     }
 
-    # System prompt: strict Polish, symptom-prediction framing.
     system = (
         "Jesteś asystentem aplikacji zdrowotnej. "
         "Tworzysz krótkie, konkretne powiadomienia o ryzyku wystąpienia objawów na podstawie czynników środowiskowych. "
@@ -132,17 +130,14 @@ def generate_message(
     }
 
     try:
-        client = OpenAI(api_key=api_key)
-        resp = client.chat.completions.create(
+        client = Anthropic(api_key=api_key)
+        msg = client.messages.create(
             model=model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": str(user)},
-            ],
-            temperature=0.3,
-            max_tokens=220,
+            max_tokens=300,
+            system=system,
+            messages=[{"role": "user", "content": str(user)}],
         )
-        text = (resp.choices[0].message.content or "").strip()
+        text = (msg.content[0].text or "").strip()
         if not text:
             return _fallback_message(profile, location_name, score, label_pl, reasons)
         # Safety: ensure header is present.

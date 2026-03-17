@@ -50,7 +50,7 @@ Open-Meteo + GIOŚ + IMGW + NOAA + Google Pollen
         ↓
     risk.py   (score 0-100 per profile; two-layer: base_score × personal_modifier)
         ↓ if score ≥ threshold and cooldown elapsed
-     ai.py    (GPT-4o-mini, Polish, max 220 tokens)
+     ai.py    (Claude Haiku, Polish, max 300 tokens)
         ↓
   runner.py   (writes to alerts_queue in feedback.db)
         ↓
@@ -81,7 +81,7 @@ Fields: `phone | profile | location | threshold | quiet_hours`
 Valid profiles: `migraine`, `heart`, `allergy`, `both`
 
 **`config/.env`** — secrets (never commit):
-- `OPENAI_API_KEY`, `OPENAI_MODEL` (default: `gpt-4o-mini`)
+- `ANTHROPIC_API_KEY`, `CLAUDE_MODEL_FAST` (default: `claude-haiku-4-5-20251001`), `CLAUDE_MODEL_SMART` (default: `claude-sonnet-4-6`)
 - `BASE_DIR` (default: `/opt/weatherguard`)
 - `COOLDOWN_MINUTES` (default: `360`)
 - `DEFAULT_THRESHOLD_MIGRAINE/HEART/ALLERGY` (defaults: 65/70/60)
@@ -102,12 +102,12 @@ Valid profiles: `migraine`, `heart`, `allergy`, `both`
 - **IMGW** — Polish meteorological warnings
 - **NOAA** — geomagnetic Kp index
 - **Google Pollen API** — optional, high-quality pollen data
-- **OpenAI** — GPT-4o-mini for Polish alert text generation
+- **Anthropic** — Claude Haiku for Polish alert text generation
 
 ### Dependencies
 
 ```
-openai>=1.30.0
+anthropic>=0.40.0
 requests>=2.31.0
 python-dotenv>=1.0.1
 ```
