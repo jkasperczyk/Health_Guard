@@ -1,0 +1,11 @@
+# Health Guard + Zdrowa cron — deploy to EC2 as /etc/cron.d/healthguard
+# Syntax: min hour day month weekday user command
+
+# WeatherGuard runner: fetch weather, compute risk, queue push alerts (every hour at :05)
+5 * * * * weatherguard /opt/weatherguard/venv/bin/python -m app.runner --once --env /opt/weatherguard/config/.env >> /opt/weatherguard/logs/cron.log 2>&1
+
+# Zdrowa push queue: send queued Web Push notifications (every hour at :07, after runner)
+7 * * * * weatherguard /opt/zdrowa/venv/bin/python /opt/zdrowa/app/manage.py process_push_queue >> /opt/weatherguard/logs/push_cron.log 2>&1
+
+# Weekly AI health reports: every Monday at 07:00
+0 7 * * 1 weatherguard /opt/zdrowa/venv/bin/python /opt/zdrowa/app/manage.py generate_weekly_report >> /opt/weatherguard/logs/reports_cron.log 2>&1
