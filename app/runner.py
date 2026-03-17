@@ -184,6 +184,7 @@ def main():
                     profile=u.profile,
                     location=getattr(loc, "name", str(loc)),
                     score=int(getattr(rr, "score", 0)),
+                    base_score=int(getattr(rr, "base_score", getattr(rr, "score", 0))),
                     threshold=int(th),
                     label=str(getattr(rr, "label", "")),
                     reasons=list(getattr(rr, "reasons", [])),

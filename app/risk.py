@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
 class RiskResult:
     profile: str
-    score: int
-    label: str  # Polish label
+    score: int        # final_score = clamp(base_score × modifier, 0, 100)
+    base_score: int   # environmental score only (0-100)
+    label: str        # Polish label
     reasons: List[str]
 
 
@@ -32,6 +33,140 @@ def _get(feats: Dict[str, Any], key: str) -> Optional[float]:
         return float(v) if v is not None else None
     except Exception:
         return None
+
+
+def _personal_modifier(feats: Dict[str, Any]) -> float:
+    """Compute personal modifier in [0.85, 1.25] from self-reported wellbeing factors.
+
+    Returns 1.0 (neutral) if no user data present for today.
+    Each factor contributes a delta proportionally:
+      - Bad values push modifier up (toward 1.25)
+      - Good values push modifier down (toward 0.85)
+    """
+    delta = 0.0
+    has_any = False
+
+    # Stress (1-10): high stress is bad
+    stress = _get(feats, "stress_1_10")
+    if stress is not None:
+        has_any = True
+        if stress >= 9:
+            delta += 0.08
+        elif stress >= 8:
+            delta += 0.06
+        elif stress >= 7:
+            delta += 0.04
+        elif stress >= 6:
+            delta += 0.02
+        elif stress <= 2:
+            delta -= 0.06
+        elif stress <= 3:
+            delta -= 0.04
+        elif stress <= 4:
+            delta -= 0.02
+
+    # Sleep quality (1-10): low = bad sleep
+    sleep = _get(feats, "sleep_quality_1_10")
+    if sleep is not None:
+        has_any = True
+        if sleep <= 2:
+            delta += 0.08
+        elif sleep <= 3:
+            delta += 0.06
+        elif sleep <= 4:
+            delta += 0.03
+        elif sleep >= 9:
+            delta -= 0.06
+        elif sleep >= 8:
+            delta -= 0.04
+        elif sleep >= 7:
+            delta -= 0.02
+
+    # Hydration (1-10): low = bad
+    hydration = _get(feats, "hydration_1_10")
+    if hydration is not None:
+        has_any = True
+        if hydration <= 2:
+            delta += 0.05
+        elif hydration <= 3:
+            delta += 0.03
+        elif hydration >= 9:
+            delta -= 0.04
+        elif hydration >= 8:
+            delta -= 0.02
+
+    # Headache (0-10): 0=none, 10=severe; high = bad
+    headache = _get(feats, "headache_1_10")
+    if headache is not None:
+        has_any = True
+        if headache >= 9:
+            delta += 0.08
+        elif headache >= 7:
+            delta += 0.06
+        elif headache >= 5:
+            delta += 0.03
+        elif headache <= 1:
+            delta -= 0.02
+
+    # Exercise (1-10): low = bad for health
+    exercise = _get(feats, "exercise_1_10")
+    if exercise is not None:
+        has_any = True
+        if exercise <= 2:
+            delta += 0.04
+        elif exercise <= 3:
+            delta += 0.02
+        elif exercise >= 8:
+            delta -= 0.04
+        elif exercise >= 7:
+            delta -= 0.02
+
+    if not has_any:
+        return 1.0
+
+    return max(0.85, min(1.25, 1.0 + delta))
+
+
+def _personal_reasons(feats: Dict[str, Any]) -> List[str]:
+    """Generate human-readable reasons for personal modifier contribution."""
+    reasons: List[str] = []
+
+    stress = _get(feats, "stress_1_10")
+    if stress is not None:
+        if stress >= 8:
+            reasons.append(f"Wysoki stres ({stress:.0f}/10) — wyzwalacz ryzyka")
+        elif stress >= 6:
+            reasons.append(f"Podwyższony stres ({stress:.0f}/10)")
+        elif stress <= 3:
+            reasons.append(f"Niski stres — czynnik ochronny ({stress:.0f}/10)")
+
+    sleep = _get(feats, "sleep_quality_1_10")
+    if sleep is not None:
+        if sleep <= 3:
+            reasons.append(f"Zły sen ({sleep:.0f}/10) — zwiększa ryzyko")
+        elif sleep >= 8:
+            reasons.append(f"Dobry sen — czynnik ochronny ({sleep:.0f}/10)")
+
+    hydration = _get(feats, "hydration_1_10")
+    if hydration is not None:
+        if hydration <= 3:
+            reasons.append(f"Niedostateczne nawodnienie ({hydration:.0f}/10)")
+
+    headache = _get(feats, "headache_1_10")
+    if headache is not None:
+        if headache >= 7:
+            reasons.append(f"Aktywny ból głowy ({headache:.0f}/10)")
+        elif headache >= 5:
+            reasons.append(f"Umiarkowany ból głowy ({headache:.0f}/10)")
+
+    exercise = _get(feats, "exercise_1_10")
+    if exercise is not None:
+        if exercise <= 2:
+            reasons.append(f"Niska aktywność fizyczna ({exercise:.0f}/10)")
+        elif exercise >= 8:
+            reasons.append(f"Wysoka aktywność — czynnik ochronny ({exercise:.0f}/10)")
+
+    return reasons
 
 
 def migraine_risk(feats: Dict[str, Any]) -> RiskResult:
@@ -107,7 +242,6 @@ def migraine_risk(feats: Dict[str, Any]) -> RiskResult:
             score += 5
             reasons.append("Umiarkowane UV (bodziec świetlny)")
 
-    # Extra sources
     imgw = _get(feats, "imgw_warning_level")
     if imgw is not None and imgw > 0:
         if imgw >= 3:
@@ -124,7 +258,6 @@ def migraine_risk(feats: Dict[str, Any]) -> RiskResult:
 
     kp = _get(feats, "kp_index")
     if kp is not None:
-        # Kp is 0..9; treat >=5 as moderate geomagnetic disturbance.
         if kp >= 6:
             score += 10
             reasons.append(f"Podwyższona aktywność geomagnetyczna (Kp≈{kp:.0f})")
@@ -132,36 +265,18 @@ def migraine_risk(feats: Dict[str, Any]) -> RiskResult:
             score += 5
             reasons.append(f"Umiarkowana aktywność geomagnetyczna (Kp≈{kp:.0f})")
 
-    # Self-reported wellbeing factors
-    stress = _get(feats, "stress_1_10")
-    if stress is not None:
-        if stress >= 8:
-            score += 12
-            reasons.append(f"Wysoki stres ({stress:.0f}/10) — znany wyzwalacz migreny")
-        elif stress >= 6:
-            score += 6
-            reasons.append(f"Podwyższony stres ({stress:.0f}/10)")
-
-    exercise = _get(feats, "exercise_1_10")
-    if exercise is not None:
-        if exercise <= 2:
-            score += 8
-            reasons.append(f"Niska aktywność fizyczna ({exercise:.0f}/10)")
-        elif exercise >= 8:
-            score = max(0.0, score - 5)
-
-    s = _clamp(score)
-    return RiskResult("migraine", s, _label_pl(s), reasons)
+    base = _clamp(score)
+    modifier = _personal_modifier(feats)
+    final = _clamp(base * modifier)
+    all_reasons = reasons + _personal_reasons(feats)
+    return RiskResult("migraine", final, base, _label_pl(final), all_reasons)
 
 
 def heart_risk(feats: Dict[str, Any]) -> RiskResult:
     score = 0.0
     reasons: List[str] = []
 
-    # Use temperature deltas as proxy if we don't have absolute temperature. (Better: add temp_now later)
-    # If you have temp_now in feats in future, swap to that.
     tdelta = _get(feats, "temp_delta_6h")
-    # Heat/cold stress is better from absolute temperature; here we use a small weight.
     if tdelta is not None and abs(tdelta) >= 6:
         score += 8
         reasons.append(f"Duża zmiana temperatury (~{abs(tdelta):.1f}°C/6h)")
@@ -196,7 +311,6 @@ def heart_risk(feats: Dict[str, Any]) -> RiskResult:
     if gios_sev is not None:
         try:
             sev = int(gios_sev)
-            # 0..5 -> add up to 15
             add = max(0, min(15, sev * 3))
             if add:
                 score += add
@@ -210,25 +324,17 @@ def heart_risk(feats: Dict[str, Any]) -> RiskResult:
         score += 6
         reasons.append("Silniejsze ostrzeżenia IMGW w regionie")
 
-    # Self-reported wellbeing factors
-    stress = _get(feats, "stress_1_10")
-    if stress is not None:
-        if stress >= 8:
-            score += 15
-            reasons.append(f"Wysoki stres ({stress:.0f}/10) — obciążenie układu krążenia")
-        elif stress >= 6:
-            score += 8
-            reasons.append(f"Podwyższony stres ({stress:.0f}/10)")
-
-    s = _clamp(score)
-    return RiskResult("heart", s, _label_pl(s), reasons)
+    base = _clamp(score)
+    modifier = _personal_modifier(feats)
+    final = _clamp(base * modifier)
+    all_reasons = reasons + _personal_reasons(feats)
+    return RiskResult("heart", final, base, _label_pl(final), all_reasons)
 
 
 def allergy_risk(feats: Dict[str, Any]) -> RiskResult:
     score = 0.0
     reasons: List[str] = []
 
-    # Prefer Google Pollen (0..5). If missing, fallback to Open-Meteo pollen counts.
     gp = feats.get("google_pollen_max")
     if gp is not None:
         try:
@@ -256,7 +362,6 @@ def allergy_risk(feats: Dict[str, Any]) -> RiskResult:
             if ptype:
                 reasons.append(f"Dominujący typ pyłku: {ptype}")
 
-    # Air pollution (PM2.5 and AQI)
     pm25 = _get(feats, "pm2_5_max_6h")
     if pm25 is not None:
         if pm25 >= 55:
@@ -298,14 +403,11 @@ def allergy_risk(feats: Dict[str, Any]) -> RiskResult:
         score += 5
         reasons.append("Wiatr może nasilać ekspozycję na pyłki/pyły")
 
-    # Self-reported wellbeing factors
-    stress = _get(feats, "stress_1_10")
-    if stress is not None and stress >= 8:
-        score += 5
-        reasons.append(f"Stres może nasilać reakcje alergiczne ({stress:.0f}/10)")
-
-    s = _clamp(score)
-    return RiskResult("allergy", s, _label_pl(s), reasons)
+    base = _clamp(score)
+    modifier = _personal_modifier(feats)
+    final = _clamp(base * modifier)
+    all_reasons = reasons + _personal_reasons(feats)
+    return RiskResult("allergy", final, base, _label_pl(final), all_reasons)
 
 
 def combined_risk(profile: str, feats: Dict[str, Any]) -> RiskResult:
@@ -322,16 +424,14 @@ def combined_risk(profile: str, feats: Dict[str, Any]) -> RiskResult:
     if p in {"both", "oba", "migraine+heart", "heart+migraine"}:
         m = migraine_risk(feats)
         h = heart_risk(feats)
-        # Choose the higher score as the primary alert level.
         if h.score > m.score:
             primary, secondary = h, m
         else:
             primary, secondary = m, h
         reasons = primary.reasons[:]
-        # Add a short secondary note if it's non-trivial.
         if secondary.score >= 30:
             reasons.append(f"Dodatkowo: ryzyko {('migrenowe' if secondary.profile=='migraine' else 'krążeniowe')} {secondary.label} ({secondary.score}/100)")
-        return RiskResult("both", primary.score, primary.label, reasons)
+        return RiskResult("both", primary.score, primary.base_score, primary.label, reasons)
 
     # Unknown profile -> treat as migraine (default)
     return migraine_risk(feats)

@@ -76,6 +76,7 @@ def ensure_schema() -> None:
               profile TEXT NOT NULL,
               location TEXT,
               score INTEGER,
+              base_score INTEGER,
               threshold INTEGER,
               label TEXT,
               reasons_json TEXT,
@@ -83,6 +84,11 @@ def ensure_schema() -> None:
             )
             """
         )
+
+        # Additive migrations for readings table
+        cols_r = {r[1] for r in c.execute("PRAGMA table_info(readings);").fetchall()}
+        if "base_score" not in cols_r:
+            c.execute("ALTER TABLE readings ADD COLUMN base_score INTEGER;")
 
         cols_fb = {r[1] for r in c.execute("PRAGMA table_info(feedback);").fetchall()}
         if "alert_id" not in cols_fb:
@@ -133,16 +139,40 @@ def ensure_schema() -> None:
         c.execute(
             """
             CREATE TABLE IF NOT EXISTS wellbeing (
-                phone         TEXT NOT NULL,
-                day           TEXT NOT NULL,
-                stress_1_10   INTEGER,
-                exercise_1_10 INTEGER,
-                updated_at    TEXT NOT NULL DEFAULT '',
+                phone              TEXT NOT NULL,
+                day                TEXT NOT NULL,
+                stress_1_10        INTEGER,
+                exercise_1_10      INTEGER,
+                sleep_quality_1_10 INTEGER,
+                hydration_1_10     INTEGER,
+                headache_1_10      INTEGER,
+                updated_at         TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (phone, day)
             )
             """
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_wellbeing_phone_day ON wellbeing(phone, day);")
+
+        # Additive migrations for wellbeing table
+        cols_wb = {r[1] for r in c.execute("PRAGMA table_info(wellbeing);").fetchall()}
+        for col_name in ("sleep_quality_1_10", "hydration_1_10", "headache_1_10"):
+            if col_name not in cols_wb:
+                c.execute(f"ALTER TABLE wellbeing ADD COLUMN {col_name} INTEGER;")
+
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS symptom_log (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                phone         TEXT NOT NULL,
+                timestamp     TEXT NOT NULL,
+                profile       TEXT NOT NULL,
+                severity_1_10 INTEGER NOT NULL,
+                notes         TEXT,
+                feats_json    TEXT
+            )
+            """
+        )
+        c.execute("CREATE INDEX IF NOT EXISTS idx_symptom_log_phone_ts ON symptom_log(phone, timestamp);")
 
         c.commit()
     finally:
@@ -195,22 +225,24 @@ def record_reading(
     profile: str,
     location: Optional[str] = None,
     score: Optional[int] = None,
+    base_score: Optional[int] = None,
     threshold: Optional[int] = None,
     label: Optional[str] = None,
     reasons: Optional[Any] = None,
     feats: Optional[Dict[str, Any]] = None,
 ) -> int:
-    """Record a per-run reading for trend building (even if no alert)."""
+    """Record a per-run reading for trend building (even if no alert).
+    score = final score (after personal modifier); base_score = environmental only."""
     ensure_schema()
     c = _conn()
     try:
         ts = int(time.time())
         cur = c.execute(
             """
-            INSERT INTO readings(ts, phone, profile, location, score, threshold, label, reasons_json, feats_json)
-            VALUES(?,?,?,?,?,?,?,?,?)
+            INSERT INTO readings(ts, phone, profile, location, score, base_score, threshold, label, reasons_json, feats_json)
+            VALUES(?,?,?,?,?,?,?,?,?,?)
             """,
-            (ts, phone, profile, location, score, threshold, label, _json_dump(reasons), _json_dump(feats)),
+            (ts, phone, profile, location, score, base_score, threshold, label, _json_dump(reasons), _json_dump(feats)),
         )
         c.commit()
         return int(cur.lastrowid)
@@ -525,7 +557,7 @@ def get_wg_users() -> list:
 
 def get_today_wellbeing(phone: str) -> Dict[str, Any]:
     """Return today's self-reported wellbeing for a phone number.
-    Keys present only when the user logged a value: stress_1_10, exercise_1_10.
+    Keys present only when the user logged a value.
     Returns {} if no entry exists for today."""
     import datetime as _dt
     today = _dt.date.today().isoformat()
@@ -533,7 +565,8 @@ def get_today_wellbeing(phone: str) -> Dict[str, Any]:
     c = _conn()
     try:
         row = c.execute(
-            "SELECT stress_1_10, exercise_1_10 FROM wellbeing WHERE phone=? AND day=?",
+            """SELECT stress_1_10, exercise_1_10, sleep_quality_1_10, hydration_1_10, headache_1_10
+               FROM wellbeing WHERE phone=? AND day=?""",
             (phone, today),
         ).fetchone()
     finally:
@@ -541,11 +574,38 @@ def get_today_wellbeing(phone: str) -> Dict[str, Any]:
     if not row:
         return {}
     result: Dict[str, Any] = {}
-    if row[0] is not None:
-        result["stress_1_10"] = int(row[0])
-    if row[1] is not None:
-        result["exercise_1_10"] = int(row[1])
+    keys = ("stress_1_10", "exercise_1_10", "sleep_quality_1_10", "hydration_1_10", "headache_1_10")
+    for i, key in enumerate(keys):
+        if row[i] is not None:
+            result[key] = int(row[i])
     return result
+
+
+def record_symptom(
+    *,
+    phone: str,
+    profile: str,
+    severity_1_10: int,
+    notes: Optional[str] = None,
+    feats: Optional[Dict[str, Any]] = None,
+) -> int:
+    """Record a user-reported symptom for ML training data."""
+    ensure_schema()
+    import datetime as _dt
+    timestamp = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    c = _conn()
+    try:
+        cur = c.execute(
+            """
+            INSERT INTO symptom_log(phone, timestamp, profile, severity_1_10, notes, feats_json)
+            VALUES(?,?,?,?,?,?)
+            """,
+            (phone, timestamp, profile, severity_1_10, notes, _json_dump(feats)),
+        )
+        c.commit()
+        return int(cur.lastrowid)
+    finally:
+        c.close()
 
 
 def sms_migrate_from_json(json_path: str, users_txt: str = "") -> int:
