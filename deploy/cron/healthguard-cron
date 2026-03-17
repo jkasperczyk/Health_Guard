@@ -12,3 +12,6 @@
 
 # Weekly ML model retraining: every Sunday at 03:00
 0 3 * * 0 weatherguard cd /opt/weatherguard && /opt/weatherguard/venv/bin/python -c "from app.ml import retrain_all_models; retrain_all_models()" >> /opt/weatherguard/logs/ml_retrain.log 2>&1
+
+# Generate daily AI tips at 06:00
+0 6 * * * weatherguard /opt/zdrowa/venv/bin/python /opt/zdrowa/app/manage.py generate_daily_tips >> /opt/weatherguard/logs/tips_cron.log 2>&1
