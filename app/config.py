@@ -52,6 +52,7 @@ class UserCfg:
     location: str
     threshold: Optional[int] = None
     quiet_hours: Optional[str] = None
+    use_ml: bool = False
 
 def load_settings(env_path: Optional[str] = None) -> Settings:
     _load_env_file(env_path)

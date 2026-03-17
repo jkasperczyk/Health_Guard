@@ -9,3 +9,6 @@
 
 # Weekly AI health reports: every Monday at 07:00
 0 7 * * 1 weatherguard /opt/zdrowa/venv/bin/python /opt/zdrowa/app/manage.py generate_weekly_report >> /opt/weatherguard/logs/reports_cron.log 2>&1
+
+# Weekly ML model retraining: every Sunday at 03:00
+0 3 * * 0 weatherguard cd /opt/weatherguard && /opt/weatherguard/venv/bin/python -c "from app.ml import retrain_all_models; retrain_all_models()" >> /opt/weatherguard/logs/ml_retrain.log 2>&1

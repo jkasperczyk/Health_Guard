@@ -67,7 +67,8 @@ Open-Meteo + GIOŚ + IMGW + NOAA + Google Pollen
 | `app/config.py` | Loads `.env`, parses `users.txt`, exposes typed settings |
 | `app/weather.py` | Fetches 7 external APIs; `extract_features()` + `extract_features_at_offset()` |
 | `app/risk.py` | `migraine_risk()`, `heart_risk()`, `allergy_risk()` → `RiskResult(score, base_score, label, reasons)` |
-| `app/ai.py` | OpenAI call with fallback deterministic message; respects `AI_MODE` env var |
+| `app/ai.py` | Claude Haiku call with fallback deterministic message; respects `AI_MODE` env var |
+| `app/ml.py` | ML personalized risk prediction: train/predict RandomForestClassifier per user+profile |
 | `app/feedback_store.py` | All SQLite operations; WAL mode; alerts_queue, push_subscriptions, forecast_alerts |
 | `app/state.py` | JSON-based cooldown tracking keyed by `phone::profile` |
 
@@ -104,12 +105,26 @@ Valid profiles: `migraine`, `heart`, `allergy`, `both`
 - **Google Pollen API** — optional, high-quality pollen data
 - **Anthropic** — Claude Haiku for Polish alert text generation
 
+### ML Personalized Risk Prediction
+
+Users with `use_ml=1` in `wg_users` get personalized ML scoring:
+- Model: `RandomForestClassifier(n_estimators=100, max_depth=10, class_weight="balanced")`
+- 20 features from `feats_json` (weather, air quality, wellbeing, temporal)
+- Training data: `symptom_log` (positives) + `readings` on days without symptoms (negatives)
+- Minimum 30 positive samples to train
+- Blending: `final_score = 0.6 * classical + 0.4 * ml_probability`
+- Models stored in `ml_models` table as joblib BLOB
+- Weekly retrain: Sunday 03:00 via cron
+
 ### Dependencies
 
 ```
 anthropic>=0.40.0
 requests>=2.31.0
 python-dotenv>=1.0.1
+scikit-learn>=1.3.0
+numpy>=1.24.0
+joblib>=1.3.0
 ```
 
 Install: `pip install -r requirements.txt` (use the venv at `venv/`)

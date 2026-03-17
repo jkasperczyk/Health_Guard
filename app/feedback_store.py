@@ -89,6 +89,8 @@ def ensure_schema() -> None:
         cols_r = {r[1] for r in c.execute("PRAGMA table_info(readings);").fetchall()}
         if "base_score" not in cols_r:
             c.execute("ALTER TABLE readings ADD COLUMN base_score INTEGER;")
+        if "ml_score" not in cols_r:
+            c.execute("ALTER TABLE readings ADD COLUMN ml_score INTEGER;")
 
         cols_fb = {r[1] for r in c.execute("PRAGMA table_info(feedback);").fetchall()}
         if "alert_id" not in cols_fb:
@@ -106,6 +108,11 @@ def ensure_schema() -> None:
         c.execute("CREATE INDEX IF NOT EXISTS idx_alerts_phone_profile_ts ON alerts(phone, profile, ts);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_feedback_phone_ts ON feedback(phone, ts);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_readings_phone_profile_ts ON readings(phone, profile, ts);")
+
+        # Additive migrations for wg_users: use_ml flag
+        cols_wgu = {r[1] for r in c.execute("PRAGMA table_info(wg_users);").fetchall()}
+        if cols_wgu and "use_ml" not in cols_wgu:
+            c.execute("ALTER TABLE wg_users ADD COLUMN use_ml INTEGER NOT NULL DEFAULT 0;")
 
         c.execute(
             """
@@ -281,19 +288,20 @@ def record_reading(
     label: Optional[str] = None,
     reasons: Optional[Any] = None,
     feats: Optional[Dict[str, Any]] = None,
+    ml_score: Optional[int] = None,
 ) -> int:
     """Record a per-run reading for trend building (even if no alert).
-    score = final score (after personal modifier); base_score = environmental only."""
+    score = final (blended) score; base_score = environmental only; ml_score = ML probability."""
     ensure_schema()
     c = _conn()
     try:
         ts = int(time.time())
         cur = c.execute(
             """
-            INSERT INTO readings(ts, phone, profile, location, score, base_score, threshold, label, reasons_json, feats_json)
-            VALUES(?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO readings(ts, phone, profile, location, score, base_score, threshold, label, reasons_json, feats_json, ml_score)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
             """,
-            (ts, phone, profile, location, score, base_score, threshold, label, _json_dump(reasons), _json_dump(feats)),
+            (ts, phone, profile, location, score, base_score, threshold, label, _json_dump(reasons), _json_dump(feats), ml_score),
         )
         c.commit()
         return int(cur.lastrowid)
@@ -583,14 +591,25 @@ def get_wg_users() -> list:
     ensure_schema()
     c = _conn()
     try:
-        rows = c.execute(
-            "SELECT phone, profiles_json, location, threshold, quiet_hours "
-            "FROM wg_users WHERE enabled=1 ORDER BY phone"
-        ).fetchall()
+        # use_ml may not exist on older DBs — query columns first
+        cols_wgu = {r[1] for r in c.execute("PRAGMA table_info(wg_users)").fetchall()}
+        has_use_ml = "use_ml" in cols_wgu
+        if has_use_ml:
+            rows = c.execute(
+                "SELECT phone, profiles_json, location, threshold, quiet_hours, use_ml "
+                "FROM wg_users WHERE enabled=1 ORDER BY phone"
+            ).fetchall()
+        else:
+            rows = c.execute(
+                "SELECT phone, profiles_json, location, threshold, quiet_hours "
+                "FROM wg_users WHERE enabled=1 ORDER BY phone"
+            ).fetchall()
     finally:
         c.close()
     result = []
-    for phone, profiles_json, location, threshold, quiet_hours in rows:
+    for row in rows:
+        phone, profiles_json, location, threshold, quiet_hours = row[:5]
+        use_ml = bool(row[5]) if has_use_ml and len(row) > 5 and row[5] else False
         try:
             profiles = json.loads(profiles_json or '["migraine"]')
         except Exception:
@@ -602,6 +621,7 @@ def get_wg_users() -> list:
                 location=location or "",
                 threshold=int(threshold) if threshold is not None else None,
                 quiet_hours=quiet_hours or None,
+                use_ml=use_ml,
             ))
     return result
 

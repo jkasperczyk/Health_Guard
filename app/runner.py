@@ -179,6 +179,24 @@ def main():
 
             rr = pick_risk_fn(u.profile)(feats)
 
+            # ML blending (opt-in per user)
+            ml_score_val = None
+            if getattr(u, "use_ml", False):
+                try:
+                    from app.ml import predict_ml as _predict_ml
+                    _ml_res = _predict_ml(u.phone, u.profile, feats)
+                    if _ml_res is not None:
+                        ml_score_val = _ml_res["probability"]
+                        classical_score = int(getattr(rr, "score", 0))
+                        blended = max(0, min(100, int(round(0.6 * classical_score + 0.4 * ml_score_val))))
+                        rr.score = blended
+                        rr.reasons = list(getattr(rr, "reasons", [])) + [
+                            f"🧠 ML predykcja: {ml_score_val}% (na podstawie Twoich indywidualnych danych)"
+                        ]
+                        log.debug(f"[ML] {u.phone} classical={classical_score} ml={ml_score_val} blended={blended}")
+                except Exception as _ml_e:
+                    log.debug(f"[ML] predict_ml failed for {u.phone}: {_ml_e}")
+
             # Record reading (always, best-effort)
             try:
                 record_reading(
@@ -191,6 +209,7 @@ def main():
                     label=str(getattr(rr, "label", "")),
                     reasons=list(getattr(rr, "reasons", [])),
                     feats=feats,
+                    ml_score=ml_score_val,
                 )
             except Exception:
                 pass
