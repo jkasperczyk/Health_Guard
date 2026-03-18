@@ -18,3 +18,9 @@
 
 # Precompute dashboard cache every hour at :10 (after runner at :05)
 10 * * * * weatherguard /opt/zdrowa/venv/bin/python /opt/zdrowa/app/manage.py precompute_dashboard_cache >> /opt/weatherguard/logs/cache_cron.log 2>&1
+
+# Watchdog: system health monitoring every 15 minutes (runs as root to check services/logs)
+*/15 * * * * root /opt/zdrowa/venv/bin/python /opt/zdrowa/app/manage.py watchdog >> /opt/weatherguard/logs/watchdog.log 2>&1
+
+# Daily health summary at 08:00
+0 8 * * * root /opt/zdrowa/venv/bin/python /opt/zdrowa/app/manage.py watchdog --daily-summary >> /opt/weatherguard/logs/watchdog.log 2>&1
