@@ -15,3 +15,6 @@
 
 # Generate daily AI tips at 06:00
 0 6 * * * weatherguard /opt/zdrowa/venv/bin/python /opt/zdrowa/app/manage.py generate_daily_tips >> /opt/weatherguard/logs/tips_cron.log 2>&1
+
+# Precompute dashboard cache every hour at :10 (after runner at :05)
+10 * * * * weatherguard /opt/zdrowa/venv/bin/python /opt/zdrowa/app/manage.py precompute_dashboard_cache >> /opt/weatherguard/logs/cache_cron.log 2>&1
